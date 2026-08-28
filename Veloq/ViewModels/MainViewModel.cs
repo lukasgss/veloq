@@ -13,6 +13,7 @@ public sealed partial class MainViewModel : ViewModelBase
 {
     private readonly Func<string, QueryRunner> _createRunner;
     private readonly Action<IEnumerable<ConnectionInfo>> _saveConnections;
+    private readonly Func<Action, Task> _dispatchToUi;
 
     public MainViewModel()
         : this(ConnectionStore.Load, connectionString => new QueryRunner(connectionString), ConnectionStore.Save)
@@ -22,10 +23,12 @@ public sealed partial class MainViewModel : ViewModelBase
     internal MainViewModel(
         Func<IReadOnlyList<ConnectionInfo>> loadConnections,
         Func<string, QueryRunner> createRunner,
-        Action<IEnumerable<ConnectionInfo>> saveConnections)
+        Action<IEnumerable<ConnectionInfo>> saveConnections,
+        Func<Action, Task>? dispatchToUi = null)
     {
         _createRunner = createRunner;
         _saveConnections = saveConnections;
+        _dispatchToUi = dispatchToUi ?? DispatchToUiAsync;
 
         try
         {
@@ -72,7 +75,7 @@ public sealed partial class MainViewModel : ViewModelBase
             }
             catch (Exception ex)
             {
-                await Dispatcher.UIThread.InvokeAsync(() =>
+                await _dispatchToUi(() =>
                 {
                     HasError = true;
                     StatusText = $"{ex.GetType().Name}: {ex.Message}";
@@ -80,6 +83,9 @@ public sealed partial class MainViewModel : ViewModelBase
             }
         });
     }
+
+    private static async Task DispatchToUiAsync(Action action) =>
+        await Dispatcher.UIThread.InvokeAsync(action);
 
     [ObservableProperty]
     public partial string QueryText { get; set; } = string.Empty;

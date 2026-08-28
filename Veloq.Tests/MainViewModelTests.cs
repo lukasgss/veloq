@@ -90,6 +90,43 @@ public sealed class MainViewModelTests
         Assert.Null(viewModel.SelectedConnection);
     }
 
+    [Fact]
+    public async Task SelectedConnectionPrefetchFailureIsReported()
+    {
+        Task<(CompiledModel Model, ScriptOptions ScriptOptions)> InitializeAsync() =>
+            Task.FromException<(CompiledModel, ScriptOptions)>(
+                new InvalidOperationException("Schema prefetch failed."));
+
+        TaskCompletionSource errorReported = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        QueryRunner runner = new(InitializeAsync);
+        MainViewModel viewModel = new(
+            () => [],
+            _ => runner,
+            _ => { },
+            action =>
+            {
+                action();
+                errorReported.SetResult();
+                return Task.CompletedTask;
+            });
+
+        viewModel.SelectedConnection = new ConnectionInfo
+        {
+            Name = "Test",
+            Host = "localhost",
+            Port = "5432",
+            Database = "test",
+            Username = "test",
+            Password = string.Empty,
+            Runner = runner,
+        };
+
+        await errorReported.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(viewModel.HasError);
+        Assert.Equal("InvalidOperationException: Schema prefetch failed.", viewModel.StatusText);
+    }
+
     private static MainViewModel CreateViewModel(
         QueryRunner runner,
         Action<IEnumerable<ConnectionInfo>> saveConnections) =>
