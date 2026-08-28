@@ -11,11 +11,25 @@ namespace Veloq.ViewModels;
 
 public sealed partial class MainViewModel : ViewModelBase
 {
+    private readonly Func<string, QueryRunner> _createRunner;
+    private readonly Action<IEnumerable<ConnectionInfo>> _saveConnections;
+
     public MainViewModel()
+        : this(ConnectionStore.Load, connectionString => new QueryRunner(connectionString), ConnectionStore.Save)
     {
+    }
+
+    internal MainViewModel(
+        Func<IReadOnlyList<ConnectionInfo>> loadConnections,
+        Func<string, QueryRunner> createRunner,
+        Action<IEnumerable<ConnectionInfo>> saveConnections)
+    {
+        _createRunner = createRunner;
+        _saveConnections = saveConnections;
+
         try
         {
-            foreach (ConnectionInfo connection in ConnectionStore.Load())
+            foreach (ConnectionInfo connection in loadConnections())
             {
                 Connections.Add(connection);
             }
@@ -209,7 +223,7 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             string cs = ConnectionInfo.BuildConnectionString(
                 NewHost, NewPort, NewDatabase, NewUsername, NewPassword);
-            QueryRunner runner = new(cs);
+            QueryRunner runner = _createRunner(cs);
             string version = await runner.TestConnectionAsync();
 
             ConnectionStatus = "Reading database schema…";
@@ -226,7 +240,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 Runner = runner,
             };
 
-            ConnectionStore.Save(Connections.Append(conn));
+            _saveConnections(Connections.Append(conn));
             Connections.Add(conn);
             SelectedConnection = conn;
             IsAddingConnection = false;
@@ -243,7 +257,7 @@ public sealed partial class MainViewModel : ViewModelBase
         }
     }
 
-    private static void Line(StringBuilder sb, IReadOnlyList<int> widths, IReadOnlyCollection<string> cells)
+    private static void Line(StringBuilder sb, int[] widths, IReadOnlyCollection<string> cells)
     {
         sb.AppendLine(string.Join("  ", cells.Select((c, i) => c.PadRight(widths[i]))));
     }

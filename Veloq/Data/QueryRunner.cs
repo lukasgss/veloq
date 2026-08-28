@@ -18,6 +18,7 @@ public sealed class QueryRunner
     private readonly string _connectionString;
     private readonly List<MetadataReference> _references;
     private readonly Func<Task<InitializedState>> _initializeState;
+    private readonly Func<Task<string>> _testConnection;
 
     private readonly SemaphoreSlim _modelLock = new(1, 1);
     private volatile InitializedState? _initializedState;
@@ -52,9 +53,12 @@ public sealed class QueryRunner
         _connectionString = connectionString;
         _references = BuildReferences();
         _initializeState = BuildInitializedStateAsync;
+        _testConnection = TestDatabaseConnectionAsync;
     }
 
-    internal QueryRunner(Func<Task<(CompiledModel Model, ScriptOptions ScriptOptions)>> initializeState)
+    internal QueryRunner(
+        Func<Task<(CompiledModel Model, ScriptOptions ScriptOptions)>> initializeState,
+        Func<Task<string>>? testConnection = null)
     {
         _connectionString = string.Empty;
         _references = [];
@@ -63,6 +67,7 @@ public sealed class QueryRunner
             (CompiledModel model, ScriptOptions scriptOptions) = await initializeState();
             return new InitializedState(model, scriptOptions);
         };
+        _testConnection = testConnection ?? (() => Task.FromResult(string.Empty));
     }
 
     private static List<MetadataReference> BuildReferences()
@@ -315,7 +320,9 @@ public sealed class QueryRunner
         _ => string.Empty,
     };
 
-    public async Task<string> TestConnectionAsync()
+    public Task<string> TestConnectionAsync() => _testConnection();
+
+    private async Task<string> TestDatabaseConnectionAsync()
     {
         await using NpgsqlConnection conn = new(_connectionString);
         await conn.OpenAsync();
