@@ -1,0 +1,88 @@
+<?xml version="1.0"?>
+<SyntaxDefinition name="C#Dark" xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Comment"     foreground="#6A9955" />
+  <Color name="String"      foreground="#CE9178" />
+  <Color name="Char"        foreground="#CE9178" />
+  <Color name="Number"      foreground="#B5CEA8" />
+  <Color name="Preprocessor" foreground="#9B9B9B" />
+  <Color name="Punctuation" foreground="#D4D4D4" />
+  <Color name="Keyword"     foreground="#569CD6" />
+  <Color name="ControlKeyword" foreground="#C586C0" />
+  <Color name="TypeKeyword" foreground="#4EC9B0" />
+  <Color name="LinqKeyword" foreground="#C586C0" />
+  <Color name="MethodCall"  foreground="#DCDCAA" />
+
+  <RuleSet ignoreCase="false">
+    <Span color="Comment" begin="//" />
+    <Span color="Comment" multiline="true" begin="/\*" end="\*/" />
+
+    <Span color="String" multiline="true">
+      <Begin>"</Begin>
+      <End>"</End>
+      <RuleSet>
+        <Span begin="\\" end="." />
+      </RuleSet>
+    </Span>
+    <Span color="String" multiline="true">
+      <Begin>@"</Begin>
+      <End>"</End>
+      <RuleSet>
+        <Span begin='""' end="" />
+      </RuleSet>
+    </Span>
+    <Span color="Char">
+      <Begin>'</Begin>
+      <End>'</End>
+      <RuleSet>
+        <Span begin="\\" end="." />
+      </RuleSet>
+    </Span>
+
+    <Span color="Preprocessor" begin="\#" />
+
+    <Keywords color="ControlKeyword">
+      <Word>if</Word><Word>else</Word><Word>switch</Word><Word>case</Word><Word>default</Word>
+      <Word>for</Word><Word>foreach</Word><Word>while</Word><Word>do</Word>
+      <Word>break</Word><Word>continue</Word><Word>return</Word><Word>goto</Word>
+      <Word>throw</Word><Word>try</Word><Word>catch</Word><Word>finally</Word>
+      <Word>yield</Word><Word>await</Word><Word>async</Word>
+    </Keywords>
+
+    <Keywords color="LinqKeyword">
+      <Word>from</Word><Word>where</Word><Word>select</Word><Word>group</Word><Word>into</Word>
+      <Word>orderby</Word><Word>join</Word><Word>let</Word><Word>on</Word><Word>equals</Word>
+      <Word>by</Word><Word>ascending</Word><Word>descending</Word>
+    </Keywords>
+
+    <Keywords color="TypeKeyword">
+      <Word>bool</Word><Word>byte</Word><Word>sbyte</Word><Word>char</Word><Word>decimal</Word>
+      <Word>double</Word><Word>float</Word><Word>int</Word><Word>uint</Word><Word>long</Word>
+      <Word>ulong</Word><Word>short</Word><Word>ushort</Word><Word>object</Word><Word>string</Word>
+      <Word>void</Word><Word>var</Word><Word>dynamic</Word>
+    </Keywords>
+
+    <Keywords color="Keyword">
+      <Word>public</Word><Word>private</Word><Word>protected</Word><Word>internal</Word>
+      <Word>static</Word><Word>readonly</Word><Word>const</Word><Word>new</Word><Word>this</Word>
+      <Word>base</Word><Word>null</Word><Word>true</Word><Word>false</Word>
+      <Word>class</Word><Word>struct</Word><Word>interface</Word><Word>enum</Word><Word>record</Word>
+      <Word>namespace</Word><Word>using</Word><Word>get</Word><Word>set</Word><Word>init</Word>
+      <Word>is</Word><Word>as</Word><Word>in</Word><Word>out</Word><Word>ref</Word>
+      <Word>sealed</Word><Word>abstract</Word><Word>virtual</Word><Word>override</Word>
+      <Word>partial</Word><Word>typeof</Word><Word>nameof</Word><Word>sizeof</Word>
+    </Keywords>
+
+    <!-- method / member calls: identifier followed by ( -->
+    <Rule color="MethodCall">
+      \b[\d\w_]+(?=\s*\()
+    </Rule>
+
+    <Rule color="Number">
+      \b0[xX][0-9a-fA-F]+|(\b\d+(\.[0-9]+)?|\.[0-9]+)([eE][+-]?[0-9]+)?[fFdDmMlLuU]*
+    </Rule>
+
+    <Rule color="Punctuation">
+      [?,.;()\[\]{}+\-/%*&lt;&gt;^!|~&amp;=]+
+    </Rule>
+  </RuleSet>
+</SyntaxDefinition>

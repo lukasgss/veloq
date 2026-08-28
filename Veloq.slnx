@@ -1,4 +1,4 @@
-﻿<Solution>
+<Solution>
   <Project Path="Veloq.Desktop/Veloq.Desktop.csproj" />
   <Project Path="Veloq/Veloq.csproj" />
 </Solution>

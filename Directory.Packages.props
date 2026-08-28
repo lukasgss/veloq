@@ -15,5 +15,6 @@
         <!-- Query engine: real PostgreSQL planner via Npgsql + EF Core -->
         <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
         <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.12.0" />
+        <PackageVersion Include="Avalonia.AvaloniaEdit" Version="12.0.0" />
     </ItemGroup>
 </Project>

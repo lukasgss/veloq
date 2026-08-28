@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:Veloq.ViewModels"
+             xmlns:ae="using:AvaloniaEdit"
              mc:Ignorable="d" d:DesignWidth="1300" d:DesignHeight="820"
              x:Class="Veloq.Views.MainView"
              x:DataType="vm:MainViewModel"
@@ -74,7 +75,14 @@
                 </Border>
 
                 <!-- Code editor -->
-                <TextBox Grid.Row="1" Classes="code" Text="{Binding QueryText}" />
+                <ae:TextEditor Grid.Row="1" Name="Editor"
+                               Background="{StaticResource BgEditorBrush}"
+                               Foreground="{StaticResource TextHiBrush}"
+                               FontFamily="Cascadia Code,Consolas,Menlo,monospace"
+                               FontSize="13"
+                               ShowLineNumbers="True"
+                               HorizontalScrollBarVisibility="Auto"
+                               VerticalScrollBarVisibility="Auto" />
 
                 <GridSplitter Grid.Row="2" Background="{StaticResource BorderBrush}" />
 
