@@ -18,6 +18,8 @@ public sealed class BoolBrush : IValueConverter
 
     public static readonly BoolBrush RedOrAccent = new(Color.Parse("#f85149"), Color.Parse("#2dd4bf"));
 
+    public static readonly BoolBrush AmberOrHi = new(Color.Parse("#d29922"), Color.Parse("#c9d1d9"));
+
     public static readonly BoolBrush RedOrLo = new(Color.Parse("#f85149"), Color.Parse("#8b98a9"));
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>

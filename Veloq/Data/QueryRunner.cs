@@ -4,8 +4,6 @@ using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -70,7 +68,7 @@ public sealed class QueryRunner
         return assemblies
             .Select(a => a.Location)
             .Distinct()
-            .Select(loc => (MetadataReference)MetadataReference.CreateFromFile(loc))
+            .Select(MetadataReference (loc) => MetadataReference.CreateFromFile(loc))
             .ToList();
     }
 
@@ -101,14 +99,21 @@ public sealed class QueryRunner
         }
     }
 
-    private DbContext CreateContext(CompiledModel model, CaptureInterceptor interceptor)
+    private DbContext CreateContext(CompiledModel model, CaptureInterceptor interceptor, bool noTracking)
     {
         DbContextOptions options = new DbContextOptionsBuilder()
             .UseNpgsql(_connectionString)
             .AddInterceptors(interceptor)
             .Options;
 
-        return (DbContext)Activator.CreateInstance(model.ContextType, options)!;
+        DbContext context = (DbContext)Activator.CreateInstance(model.ContextType, options)!;
+
+        if (noTracking)
+        {
+            context.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        }
+
+        return context;
     }
 
     private ScriptOptions BuildScriptOptions(CompiledModel model)
@@ -265,53 +270,109 @@ public sealed class QueryRunner
         return conn.PostgreSqlVersion.ToString();
     }
 
-    public async Task<QueryResult> RunAsync(string expression)
+    public async Task<QueryResult> RunAsync(
+        string expression,
+        BenchmarkOptions? options = null,
+        bool noTracking = false)
     {
-        CaptureInterceptor interceptor = new();
+        options ??= BenchmarkOptions.Single;
 
         try
         {
             CompiledModel model = await GetModelAsync();
 
-            await using DbContext db = CreateContext(model, interceptor);
+            // Compile once; invoke the delegate per iteration so we measure execution,
+            // not Roslyn compilation, on every run.
+            Script<object> script = CSharpScript.Create<object>(
+                StripTrailingSemicolons(expression),
+                BuildScriptOptions(model),
+                model.HostType);
 
-            object host = Activator.CreateInstance(model.HostType)!;
-            model.HostType.GetField("db")!.SetValue(host, db);
-
-            object? value;
-            Stopwatch sw = Stopwatch.StartNew();
+            ScriptRunner<object> run;
             try
             {
-                value = await CSharpScript.EvaluateAsync<object>(
-                    StripTrailingSemicolons(expression),
-                    BuildScriptOptions(model),
-                    host,
-                    model.HostType);
-
-                value = await UnwrapAsync(value);
+                run = script.CreateDelegate();
             }
             catch (CompilationErrorException ex)
             {
                 return QueryResult.Fail("Compilation error:\n" + string.Join("\n", ex.Diagnostics));
             }
 
-            var (columns, rows, count) = ResultMaterializer.Materialize(value);
-            sw.Stop();
+            int warmup = options.WarmupCount;
+            int measured = options.MeasuredCount;
+            List<double> timings = new(measured);
+            List<double> warmupTimings = new(warmup);
+            double coldMs = 0;
 
-            string sql = QueryDiagnostics.FormatSql(interceptor.Commands);
+            CaptureInterceptor displayInterceptor = new();
+            (List<string> Columns, List<string[]> Rows, int Count) display = ([], [], 0);
 
-            string plan = interceptor.Commands.Count == 0
+            for (int i = 0; i < warmup + measured; i++)
+            {
+                CaptureInterceptor interceptor = new();
+                await using DbContext db = CreateContext(model, interceptor, noTracking);
+
+                object host = Activator.CreateInstance(model.HostType)!;
+                model.HostType.GetField("db")!.SetValue(host, db);
+
+                Stopwatch sw = Stopwatch.StartNew();
+
+                object? value = await UnwrapAsync(await run(host));
+                (List<string> Columns, List<string[]> Rows, int Count) materialized = ResultMaterializer.Materialize(value);
+
+                sw.Stop();
+
+                double ms = sw.Elapsed.TotalMilliseconds;
+                if (i == 0)
+                {
+                    coldMs = ms;
+                }
+
+                if (i < warmup)
+                {
+                    warmupTimings.Add(ms);
+                }
+                else
+                {
+                    timings.Add(ms);
+                }
+
+                // Size the sample once the warmups are done. The cold run is discarded (it
+                // measures EF translation and connection setup, not the query) and the
+                // fastest of the rest is used, since that is the run closest to steady
+                // state. Later warmups still carry JIT and pool settling costs.
+                if (options.Adaptive && i == warmup - 1 && warmupTimings.Count > 1)
+                {
+                    measured = BenchmarkOptions.RunsFor(warmupTimings.Skip(1).Min());
+                }
+
+                if (i == warmup + measured - 1)
+                {
+                    displayInterceptor = interceptor;
+                    display = materialized;
+                }
+            }
+
+            (List<string> columns, List<string[]> rows, int count) = display;
+
+            string sql = QueryDiagnostics.FormatSql(displayInterceptor.Commands);
+            string plan = displayInterceptor.Commands.Count == 0
                 ? "(no server-side query to explain)"
-                : await ExplainAsync(interceptor.Commands);
+                : await ExplainAsync(displayInterceptor.Commands);
+
+            BenchmarkResult? benchmark = warmup + measured > 1
+                ? BenchmarkResult.From(coldMs, timings, warmup)
+                : null;
 
             return new QueryResult
             {
                 Success = true,
                 Sql = sql,
                 Plan = plan,
-                QueryCount = interceptor.QueryCount,
+                QueryCount = displayInterceptor.QueryCount,
                 IsSplitQuery = QueryDiagnostics.ContainsAsSplitQuery(expression),
-                ElapsedMs = sw.ElapsedMilliseconds,
+                ElapsedMs = (long)Math.Round(benchmark?.MedianMs ?? coldMs),
+                Benchmark = benchmark,
                 Columns = columns,
                 Rows = rows,
                 RowCount = count,
