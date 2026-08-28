@@ -62,15 +62,6 @@
                         <Button Classes="primary" Command="{Binding RunCommand}"
                                 IsEnabled="{Binding !IsRunning}" Content="▶  Run" />
                         <Button Classes="pill" Command="{Binding ResetCommand}" Content="Reset" />
-                        <Border Width="1" Background="{StaticResource BorderBrush}" Margin="4,2" />
-                        <TextBlock Text="Language" VerticalAlignment="Center"
-                                   Foreground="{StaticResource TextLoBrush}" />
-                        <Border Classes="badge">
-                            <TextBlock Text="C# Expression" Foreground="{StaticResource TextHiBrush}" FontSize="12" />
-                        </Border>
-                        <TextBlock Text="country =" VerticalAlignment="Center"
-                                   Foreground="{StaticResource TextLoBrush}" />
-                        <TextBox Classes="field" Width="70" Text="{Binding Country}" />
                     </StackPanel>
                 </Border>
 

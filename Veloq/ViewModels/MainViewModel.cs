@@ -18,7 +18,6 @@ public sealed partial class MainViewModel : ViewModelBase
         // Rewrite so EF Core emits a single SQL statement, then Run again to
         // compare the plan and round-trip count.
         db.Customers
-          .Where(c => c.Country == country)
           .OrderBy(c => c.Id)
           .ToList()
           .Select(c => new CustomerTotal
@@ -47,8 +46,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     public partial string QueryText { get; set; } = string.Empty;
     [ObservableProperty]
-    public partial string Country { get; set; } = "US";
-    [ObservableProperty]
     public partial bool IsRunning { get; set; }
     [ObservableProperty]
     public partial bool HasError { get; set; }
@@ -63,6 +60,12 @@ public sealed partial class MainViewModel : ViewModelBase
 
     [RelayCommand]
     private void Reset() => QueryText = NaiveQuery;
+
+    public Task<IReadOnlyList<CompletionSuggestion>> GetCompletionsAsync(string text, int position)
+    {
+        return SelectedConnection?.Runner.GetCompletionsAsync(text, position)
+               ?? Task.FromResult<IReadOnlyList<CompletionSuggestion>>([]);
+    }
 
     private bool CanRun() => SelectedConnection is not null && !IsRunning;
 
@@ -81,7 +84,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         try
         {
-            QueryResult result = await SelectedConnection.Runner.RunAsync(QueryText, Country);
+            QueryResult result = await SelectedConnection.Runner.RunAsync(QueryText);
             if (!result.Success)
             {
                 HasError = true;
@@ -179,6 +182,9 @@ public sealed partial class MainViewModel : ViewModelBase
                 ConnectionStatus = "Seeding sample schema…";
                 await runner.SeedSampleSchemaAsync();
             }
+
+            ConnectionStatus = "Reading database schema…";
+            await runner.GetModelAsync();
 
             ConnectionInfo conn = new()
             {

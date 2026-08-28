@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -130,7 +131,131 @@ public sealed class QueryRunner
             .WithImports(Imports);
     }
 
-    /// <summary>Opens a connection to verify the credentials/host are reachable.</summary>
+    public async Task<IReadOnlyList<CompletionSuggestion>> GetCompletionsAsync(string expression, int position)
+    {
+        CompiledModel model = await GetModelAsync();
+        position = Math.Clamp(position, 0, expression.Length);
+
+        Script<object> script = CSharpScript.Create<object>(
+            expression,
+            BuildScriptOptions(model),
+            model.HostType);
+        Compilation compilation = script.GetCompilation();
+        SyntaxTree tree = compilation.SyntaxTrees.Last();
+        SyntaxNode root = await tree.GetRootAsync();
+        SemanticModel semanticModel = compilation.GetSemanticModel(tree);
+
+        int tokenPosition = position == 0 ? 0 : position - 1;
+        SyntaxToken token = root.FindToken(tokenPosition, findInsideTrivia: true);
+        MemberAccessExpressionSyntax? memberAccess = token.Parent?
+            .AncestorsAndSelf()
+            .OfType<MemberAccessExpressionSyntax>()
+            .FirstOrDefault(m => m.OperatorToken.Span.End <= position && m.FullSpan.End >= position);
+
+        IEnumerable<ISymbol> symbols;
+        if (memberAccess is not null)
+        {
+            SymbolInfo expressionSymbol = semanticModel.GetSymbolInfo(memberAccess.Expression);
+            ITypeSymbol? container = semanticModel.GetTypeInfo(memberAccess.Expression).Type
+                ?? expressionSymbol.Symbol as ITypeSymbol;
+            if (container is null)
+            {
+                return [];
+            }
+
+            bool staticAccess = expressionSymbol.Symbol is INamedTypeSymbol;
+
+            symbols = semanticModel
+                .LookupSymbols(position, container, includeReducedExtensionMethods: true)
+                .Where(s => staticAccess ? s.IsStatic : !s.IsStatic || s is IMethodSymbol { MethodKind: MethodKind.ReducedExtension });
+        }
+        else
+        {
+            symbols = semanticModel.LookupSymbols(position);
+        }
+
+        return symbols
+            .Where(IsCompletionSymbol)
+            .GroupBy(s => s.Name, StringComparer.Ordinal)
+            .Select(g => ToSuggestion(g.First(), g.Count()))
+            .OrderByDescending(x => x.Priority)
+            .ThenBy(x => x.Text, StringComparer.OrdinalIgnoreCase)
+            .Take(500)
+            .ToList();
+    }
+
+    private static bool IsCompletionSymbol(ISymbol symbol)
+    {
+        return !symbol.IsImplicitlyDeclared &&
+               !string.IsNullOrWhiteSpace(symbol.Name) &&
+               symbol.Name[0] != '<' &&
+               symbol.Kind is SymbolKind.Field or SymbolKind.Property or SymbolKind.Event or
+                   SymbolKind.Method or SymbolKind.Local or SymbolKind.Parameter or SymbolKind.NamedType
+                   or SymbolKind.Namespace;
+    }
+
+    private static CompletionSuggestion ToSuggestion(ISymbol symbol, int overloadCount)
+    {
+        int priority = symbol switch
+        {
+            IPropertySymbol => 4,
+            IFieldSymbol or ILocalSymbol or IParameterSymbol => 3,
+            IMethodSymbol => 2,
+            _ => 1,
+        };
+
+        string description = symbol.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+        if (overloadCount > 1)
+        {
+            description += $" (+{overloadCount - 1} overloads)";
+        }
+
+        return new CompletionSuggestion(
+            symbol.Name,
+            description,
+            GetCompletionDetail(symbol),
+            GetCompletionKind(symbol),
+            priority);
+    }
+
+    private static string GetCompletionKind(ISymbol symbol) => symbol switch
+    {
+        IPropertySymbol { Type: INamedTypeSymbol { Name: "DbSet" } } => "Table",
+        IPropertySymbol property when IsGeneratedNavigation(property.Type) => "Navigation",
+        IPropertySymbol property when property.ContainingType.ContainingNamespace.ToDisplayString() == CSharpModelEmitter.Namespace => "Column",
+        IPropertySymbol => "Property",
+        IFieldSymbol => "Field",
+        ILocalSymbol or IParameterSymbol => "Variable",
+        IMethodSymbol { MethodKind: MethodKind.ReducedExtension } => "Extension",
+        IMethodSymbol => "Method",
+        IEventSymbol => "Event",
+        INamedTypeSymbol => "Type",
+        INamespaceSymbol => "Namespace",
+        _ => "Symbol",
+    };
+
+    private static bool IsGeneratedNavigation(ITypeSymbol type)
+    {
+        if (type.ContainingNamespace.ToDisplayString() == CSharpModelEmitter.Namespace)
+        {
+            return true;
+        }
+
+        return type is INamedTypeSymbol { IsGenericType: true } named &&
+               named.TypeArguments.Any(t => t.ContainingNamespace.ToDisplayString() == CSharpModelEmitter.Namespace);
+    }
+
+    private static string GetCompletionDetail(ISymbol symbol) => symbol switch
+    {
+        IPropertySymbol property => property.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+        IFieldSymbol field => field.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+        ILocalSymbol local => local.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+        IParameterSymbol parameter => parameter.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+        IMethodSymbol method => method.ReturnType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+        INamedTypeSymbol type => type.TypeKind.ToString().ToLowerInvariant(),
+        _ => string.Empty,
+    };
+
     public async Task<string> TestConnectionAsync()
     {
         await using NpgsqlConnection conn = new(_connectionString);
@@ -138,8 +263,6 @@ public sealed class QueryRunner
         return conn.PostgreSqlVersion.ToString();
     }
 
-    /// <summary>Optional: create the sample Customers/Orders schema and seed it into the
-    /// connected database (only if the user opts in — we never touch existing data).</summary>
     public Task SeedSampleSchemaAsync() => Task.Run(() =>
     {
         DbContextOptions<ECommerceDbContext> options = new DbContextOptionsBuilder<ECommerceDbContext>()
@@ -152,7 +275,7 @@ public sealed class QueryRunner
         InvalidateModel();
     });
 
-    public async Task<QueryResult> RunAsync(string expression, string country)
+    public async Task<QueryResult> RunAsync(string expression)
     {
         CaptureInterceptor interceptor = new();
 
@@ -164,16 +287,11 @@ public sealed class QueryRunner
 
             object host = Activator.CreateInstance(model.HostType)!;
             model.HostType.GetField("db")!.SetValue(host, db);
-            model.HostType.GetField("country")!.SetValue(host, country);
 
             object? value;
             Stopwatch sw = Stopwatch.StartNew();
             try
             {
-                // The final line must be an *expression* so Roslyn returns (and auto-awaits
-                // a trailing Task<T>) its value. A trailing ';' turns it into a statement,
-                // which silently yields null and, for *Async calls, leaves an unawaited task
-                // running on a pooled connection.
                 value = await CSharpScript.EvaluateAsync<object>(
                     StripTrailingSemicolons(expression),
                     BuildScriptOptions(model),
@@ -292,10 +410,6 @@ public sealed class QueryRunner
         return (columns, rows, total);
     }
 
-    /// <summary>Renders a cell value. PostgreSQL <c>timestamptz</c> comes back as a UTC
-    /// <see cref="DateTime"/> (Kind=Utc); we convert those to local time and show the
-    /// offset so the display matches what psql prints in the session time zone. Plain
-    /// <c>timestamp</c> values (Kind=Unspecified) are wall-clock and left untouched.</summary>
     private static string Format(object? value) => value switch
     {
         null => "null",

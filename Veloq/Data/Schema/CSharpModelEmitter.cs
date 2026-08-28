@@ -161,7 +161,6 @@ public static class CSharpModelEmitter
         sb.AppendLine($"public sealed class {HostName}");
         sb.AppendLine("{");
         sb.AppendLine($"\tpublic {ContextName} db = null!;");
-        sb.AppendLine("\tpublic string country = string.Empty;");
         sb.AppendLine("}");
     }
 
