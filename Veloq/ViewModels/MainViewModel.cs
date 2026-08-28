@@ -40,6 +40,16 @@ public sealed partial class MainViewModel : ViewModelBase
             : $"Selected {value.Name} ({value.Subtitle}).";
 
         RunCommand.NotifyCanExecuteChanged();
+
+        if (value is not null)
+        {
+            PrefetchTablesAndIntellisenseOffUiThread(value.Runner);
+        }
+    }
+
+    private static void PrefetchTablesAndIntellisenseOffUiThread(QueryRunner runner)
+    {
+        Task.Run(() => runner.GetModelAsync());
     }
 
     [ObservableProperty]

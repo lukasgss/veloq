@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
@@ -21,6 +20,7 @@ public sealed class QueryRunner
 
     private readonly SemaphoreSlim _modelLock = new(1, 1);
     private CompiledModel? _model;
+    private ScriptOptions? _scriptOptions;
 
     private static readonly Type[] Types =
     [
@@ -90,6 +90,7 @@ public sealed class QueryRunner
             DatabaseModel db = await PgSchemaReader.ReadAsync(_connectionString);
             List<MetadataReference> references = [.. _references];
             _model = ModelCompiler.Compile(db, references);
+            _scriptOptions = BuildScriptOptions(_model);
 
             return _model;
         }
@@ -116,6 +117,9 @@ public sealed class QueryRunner
         return context;
     }
 
+    private ScriptOptions GetScriptOptions() =>
+        _scriptOptions ?? throw new InvalidOperationException("Model not loaded.");
+
     private ScriptOptions BuildScriptOptions(CompiledModel model)
     {
         List<MetadataReference> refs = new(_references)
@@ -131,15 +135,35 @@ public sealed class QueryRunner
     public async Task<IReadOnlyList<CompletionSuggestion>> GetCompletionsAsync(string expression, int position)
     {
         CompiledModel model = await GetModelAsync();
+        ScriptOptions scriptOptions = GetScriptOptions();
         position = Math.Clamp(position, 0, expression.Length);
 
+        return await ComputeCompletionsOffUiThread(expression, position, model, scriptOptions);
+    }
+
+    private static async Task<IReadOnlyList<CompletionSuggestion>> ComputeCompletionsOffUiThread(
+        string expression,
+        int position,
+        CompiledModel model,
+        ScriptOptions scriptOptions)
+    {
+        return await Task.Run(() => ComputeCompletions(expression, position, model, scriptOptions));
+    }
+
+    private static IReadOnlyList<CompletionSuggestion> ComputeCompletions(
+        string expression,
+        int position,
+        CompiledModel model,
+        ScriptOptions scriptOptions)
+    {
         Script<object> script = CSharpScript.Create<object>(
             expression,
-            BuildScriptOptions(model),
+            scriptOptions,
             model.HostType);
+
         Compilation compilation = script.GetCompilation();
         SyntaxTree tree = compilation.SyntaxTrees.Last();
-        SyntaxNode root = await tree.GetRootAsync();
+        SyntaxNode root = tree.GetRoot();
         SemanticModel semanticModel = compilation.GetSemanticModel(tree);
 
         int tokenPosition = position == 0 ? 0 : position - 1;
@@ -285,7 +309,7 @@ public sealed class QueryRunner
             // not Roslyn compilation, on every run.
             Script<object> script = CSharpScript.Create<object>(
                 StripTrailingSemicolons(expression),
-                BuildScriptOptions(model),
+                GetScriptOptions(),
                 model.HostType);
 
             ScriptRunner<object> run;

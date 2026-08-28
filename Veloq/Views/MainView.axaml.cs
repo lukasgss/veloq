@@ -9,6 +9,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using AvaloniaEdit;
 using AvaloniaEdit.CodeCompletion;
 using AvaloniaEdit.Document;
@@ -41,6 +42,17 @@ public sealed partial class MainView : UserControl
         _editor.TextArea.KeyDown += OnEditorKeyDown;
 
         DataContextChanged += OnDataContextChanged;
+        AttachedToVisualTree += (_, _) => FocusEditor();
+    }
+
+    private void FocusEditor()
+    {
+        if (_editor is null)
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() => _editor.TextArea.Focus(), DispatcherPriority.Loaded);
     }
 
     private static IHighlightingDefinition LoadCSharpDark()
