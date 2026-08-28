@@ -19,8 +19,9 @@ public sealed class QueryRunner
     private readonly List<MetadataReference> _references;
 
     private readonly SemaphoreSlim _modelLock = new(1, 1);
-    private CompiledModel? _model;
-    private ScriptOptions? _scriptOptions;
+    private volatile InitializedState? _initializedState;
+
+    private sealed record InitializedState(CompiledModel Model, ScriptOptions ScriptOptions);
 
     private static readonly Type[] Types =
     [
@@ -74,25 +75,32 @@ public sealed class QueryRunner
 
     public async Task<CompiledModel> GetModelAsync()
     {
-        if (_model is not null)
+        InitializedState initializedState = await GetInitializedStateAsync();
+
+        return initializedState.Model;
+    }
+
+    private async Task<InitializedState> GetInitializedStateAsync()
+    {
+        if (_initializedState is { } initializedState)
         {
-            return _model;
+            return initializedState;
         }
 
         await _modelLock.WaitAsync();
         try
         {
-            if (_model is not null)
+            if (_initializedState is { } lockedInitializedState)
             {
-                return _model;
+                return lockedInitializedState;
             }
 
             DatabaseModel db = await PgSchemaReader.ReadAsync(_connectionString);
             List<MetadataReference> references = [.. _references];
-            _model = ModelCompiler.Compile(db, references);
-            _scriptOptions = BuildScriptOptions(_model);
+            CompiledModel model = ModelCompiler.Compile(db, references);
+            ScriptOptions scriptOptions = BuildScriptOptions(model);
 
-            return _model;
+            return _initializedState = new InitializedState(model, scriptOptions);
         }
         finally
         {
@@ -118,7 +126,7 @@ public sealed class QueryRunner
     }
 
     private ScriptOptions GetScriptOptions() =>
-        _scriptOptions ?? throw new InvalidOperationException("Model not loaded.");
+        _initializedState?.ScriptOptions ?? throw new InvalidOperationException("Model not loaded.");
 
     private ScriptOptions BuildScriptOptions(CompiledModel model)
     {
@@ -134,7 +142,8 @@ public sealed class QueryRunner
 
     public async Task<IReadOnlyList<CompletionSuggestion>> GetCompletionsAsync(string expression, int position)
     {
-        CompiledModel model = await GetModelAsync();
+        InitializedState initializedState = await GetInitializedStateAsync();
+        CompiledModel model = initializedState.Model;
         ScriptOptions scriptOptions = GetScriptOptions();
         position = Math.Clamp(position, 0, expression.Length);
 
@@ -303,7 +312,8 @@ public sealed class QueryRunner
 
         try
         {
-            CompiledModel model = await GetModelAsync();
+            InitializedState initializedState = await GetInitializedStateAsync();
+            CompiledModel model = initializedState.Model;
 
             // Compile once; invoke the delegate per iteration so we measure execution,
             // not Roslyn compilation, on every run.

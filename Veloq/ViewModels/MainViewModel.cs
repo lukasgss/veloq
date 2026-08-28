@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Veloq.Data;
@@ -47,9 +48,23 @@ public sealed partial class MainViewModel : ViewModelBase
         }
     }
 
-    private static void PrefetchTablesAndIntellisenseOffUiThread(QueryRunner runner)
+    private void PrefetchTablesAndIntellisenseOffUiThread(QueryRunner runner)
     {
-        Task.Run(() => runner.GetModelAsync());
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await runner.GetModelAsync();
+            }
+            catch (Exception ex)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    HasError = true;
+                    StatusText = $"{ex.GetType().Name}: {ex.Message}";
+                });
+            }
+        });
     }
 
     [ObservableProperty]
@@ -198,7 +213,7 @@ public sealed partial class MainViewModel : ViewModelBase
             string version = await runner.TestConnectionAsync();
 
             ConnectionStatus = "Reading database schema…";
-            await runner.GetModelAsync();
+            await Task.Run(() => runner.GetModelAsync());
 
             ConnectionInfo conn = new()
             {
