@@ -25,6 +25,7 @@ public static class CSharpModelEmitter
 
     public static string Emit(DatabaseModel model)
     {
+        InferConventionForeignKeys(model);
         AssignNames(model);
 
         StringBuilder sb = new();
@@ -105,19 +106,19 @@ public static class CSharpModelEmitter
             string e = $"b.Entity<{t.ClrName}>()";
             sb.AppendLine($"\t\t{e}.ToTable(\"{t.Name}\", \"{t.Schema}\");");
 
-            List<ColumnModel> pk = t.Columns.Where(c => c.IsPrimaryKey).ToList();
-            if (pk.Count > 0)
+            List<ColumnModel> primaryKey = t.Columns.Where(c => c.IsPrimaryKey).ToList();
+            if (primaryKey.Count > 0)
             {
-                sb.AppendLine($"\t\t{e}.HasKey({KeySelector(pk)});");
+                sb.AppendLine($"\t\t{e}.HasKey({KeySelector(primaryKey)});");
             }
             else
             {
                 sb.AppendLine($"\t\t{e}.HasNoKey();");
             }
 
-            foreach (ColumnModel c in t.Columns)
+            foreach (ColumnModel column in t.Columns)
             {
-                sb.AppendLine($"\t\t{e}.Property(x => x.{c.ClrName}).HasColumnName(\"{c.Name}\");");
+                sb.AppendLine($"\t\t{e}.Property(x => x.{column.ClrName}).HasColumnName(\"{column.Name}\");");
             }
         }
 
@@ -164,25 +165,88 @@ public static class CSharpModelEmitter
         sb.AppendLine("}");
     }
 
+    private static void InferConventionForeignKeys(DatabaseModel model)
+    {
+        HashSet<string> mappedColumns = model.ForeignKeys
+            .Select(foreignKey => $"{foreignKey.Schema}.{foreignKey.Table}.{foreignKey.Column}")
+            .ToHashSet();
+
+        foreach (TableModel dependent in model.Tables)
+        {
+            foreach (ColumnModel column in dependent.Columns)
+            {
+                string columnKey = $"{dependent.Schema}.{dependent.Name}.{column.Name}";
+                if (mappedColumns.Contains(columnKey))
+                {
+                    continue;
+                }
+
+                string targetName = Pascal(StripId(column.Name));
+                if (targetName == Pascal(column.Name))
+                {
+                    continue;
+                }
+
+                IReadOnlyList<TableModel> candidates = model.Tables
+                    .Where(table => Pascal(table.Name) == targetName)
+                    .Where(table => table.Columns.Count(candidate => candidate.IsPrimaryKey) == 1)
+                    .ToList();
+
+                IReadOnlyList<TableModel> sameSchema = candidates
+                    .Where(table => table.Schema == dependent.Schema)
+                    .ToList();
+
+                TableModel? principal = null;
+
+                if (sameSchema.Count == 1)
+                {
+                    principal = sameSchema[0];
+                }
+                else if (sameSchema.Count == 0 && candidates.Count == 1)
+                {
+                    principal = candidates[0];
+                }
+
+                if (principal is null)
+                {
+                    continue;
+                }
+
+                ColumnModel principalKey = principal.Columns.Single(candidate => candidate.IsPrimaryKey);
+                model.ForeignKeys.Add(new ForeignKeyModel
+                {
+                    Name = $"inferred_{dependent.Name}_{column.Name}",
+                    Schema = dependent.Schema,
+                    Table = dependent.Name,
+                    Column = column.Name,
+                    RefSchema = principal.Schema,
+                    RefTable = principal.Name,
+                    RefColumn = principalKey.Name,
+                });
+                mappedColumns.Add(columnKey);
+            }
+        }
+    }
+
     private static void AssignNames(DatabaseModel model)
     {
         HashSet<string> usedClass = [];
 
-        foreach (TableModel t in model.Tables)
+        foreach (TableModel table in model.Tables)
         {
-            t.ClrName = Unique(usedClass, Pascal(t.Name));
+            table.ClrName = Unique(usedClass, Pascal(table.Name));
         }
 
-        foreach (TableModel t in model.Tables)
+        foreach (TableModel tableModel in model.Tables)
         {
-            HashSet<string> used = [t.ClrName];
+            HashSet<string> used = [tableModel.ClrName];
 
-            foreach (ColumnModel c in t.Columns)
+            foreach (ColumnModel column in tableModel.Columns)
             {
-                c.ClrName = Unique(used, Pascal(c.Name));
+                column.ClrName = Unique(used, Pascal(column.Name));
             }
 
-            AssignNavNames(model, t, used);
+            AssignNavNames(model, tableModel, used);
         }
     }
 
@@ -239,7 +303,9 @@ public static class CSharpModelEmitter
     private static string Pascal(string raw)
     {
         string[] parts = raw.Split(['_', ' ', '-', '.'], System.StringSplitOptions.RemoveEmptyEntries);
+
         StringBuilder sb = new();
+
         foreach (string p in parts)
         {
             sb.Append(char.ToUpperInvariant(p[0]));

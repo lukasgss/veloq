@@ -14,7 +14,7 @@ dotnet run --project Veloq.Desktop
    on later launches.
 2. Write a LINQ expression that returns an `IEnumerable`. `db` is a `DbContext`
    **generated at runtime from your live schema** (one `DbSet`/entity per table,
-   with navigation properties for single-column FKs).
+   with navigation properties for single-column FKs and unambiguous `<Table>Id` columns).
 
    Autocomplete opens after `.` for .NET/EF methods, fetched `DbSet` tables, columns,
    and navigation properties. Press `Ctrl+Space` to open it manually.
