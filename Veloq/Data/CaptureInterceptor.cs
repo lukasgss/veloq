@@ -9,8 +9,6 @@ public sealed record CapturedCommand(
     string Sql,
     IReadOnlyList<(string Name, object? Value)> Parameters);
 
-/// <summary>Records every SQL command EF executes so diagnostics can show and explain
-/// all round-trips, including intentional split queries.</summary>
 public sealed class CaptureInterceptor : DbCommandInterceptor
 {
     public List<CapturedCommand> Commands { get; } = [];
@@ -29,17 +27,25 @@ public sealed class CaptureInterceptor : DbCommandInterceptor
     }
 
     public override InterceptionResult<DbDataReader> ReaderExecuting(
-        DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result)
+        DbCommand command,
+        CommandEventData eventData,
+        InterceptionResult<DbDataReader> result)
     {
         Capture(command);
+
         return result;
     }
 
-    public override System.Threading.Tasks.ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
-        DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
-        System.Threading.CancellationToken cancellationToken = default)
+    public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+        DbCommand command,
+        CommandEventData eventData,
+        InterceptionResult<DbDataReader> result,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        
         Capture(command);
-        return new(result);
+
+        return new ValueTask<InterceptionResult<DbDataReader>>(result);
     }
 }

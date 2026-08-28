@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -14,8 +15,38 @@ internal static class QueryDiagnostics
 
         return syntax.DescendantNodesAndSelf()
             .OfType<InvocationExpressionSyntax>()
-            .Any(invocation => invocation.Expression is MemberAccessExpressionSyntax memberAccess &&
-                               memberAccess.Name.Identifier.ValueText == "AsSplitQuery");
+            .Any(invocation => invocation.Expression is MemberAccessExpressionSyntax
+            {
+                Name.Identifier.ValueText: "AsSplitQuery"
+            });
+    }
+
+    internal static bool ContainsAsNoTracking(string expression)
+    {
+        ExpressionSyntax syntax = SyntaxFactory.ParseExpression(expression.TrimEnd().TrimEnd(';'));
+
+        return syntax.DescendantNodesAndSelf()
+            .OfType<InvocationExpressionSyntax>()
+            .Any(IsAsNoTracking);
+    }
+
+    internal static string RemoveAsNoTracking(string expression)
+    {
+        ExpressionSyntax syntax = SyntaxFactory.ParseExpression(expression.TrimEnd().TrimEnd(';'));
+
+        ExpressionSyntax stripped = syntax.ReplaceNodes(
+            syntax.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Where(IsAsNoTracking),
+            (_, rewritten) => ((MemberAccessExpressionSyntax)rewritten.Expression).Expression);
+
+        return stripped.ToFullString();
+    }
+
+    private static bool IsAsNoTracking(InvocationExpressionSyntax invocation)
+    {
+        return invocation.Expression is MemberAccessExpressionSyntax
+        {
+            Name.Identifier.ValueText: "AsNoTracking"
+        };
     }
 
     internal static string FormatSql(IReadOnlyList<CapturedCommand> commands)

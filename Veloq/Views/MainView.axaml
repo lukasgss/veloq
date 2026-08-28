@@ -12,6 +12,13 @@
         <vm:MainViewModel />
     </Design.DataContext>
 
+    <UserControl.Styles>
+        <Style Selector="ToolTip">
+            <Setter Property="FontFamily" Value="Cascadia Code,Consolas,monospace" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+    </UserControl.Styles>
+
     <Panel>
         <Grid ColumnDefinitions="260,4,*">
 
@@ -62,6 +69,9 @@
                         <Button Classes="primary" Command="{Binding RunCommand}"
                                 IsEnabled="{Binding !IsRunning}" Content="▶  Run" />
                         <Button Classes="pill" Command="{Binding ResetCommand}" Content="Reset" />
+                        <CheckBox IsChecked="{Binding CompareTracking}" VerticalAlignment="Center"
+                                  Content="Compare tracking"
+                                  ToolTip.Tip="Also run the query as its opposite — tracking removed if it calls AsNoTracking(), tracking suppressed if it does not — and report both timings." />
                     </StackPanel>
                 </Border>
 
@@ -109,9 +119,36 @@
                 <Border Grid.Row="4" Background="{StaticResource BgDeepBrush}"
                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
                         Padding="12,6">
-                    <TextBlock Text="{Binding StatusText}"
-                               FontFamily="Cascadia Code,Consolas,monospace" FontSize="12"
-                               Foreground="{Binding HasError, Converter={x:Static vm:BoolBrush.RedOrLo}}" />
+                    <Panel>
+                        <!-- Plain messages: errors, progress, connection info -->
+                        <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center"
+                                   IsVisible="{Binding !HasStatusSegments}"
+                                   FontFamily="Cascadia Code,Consolas,monospace" FontSize="12"
+                                   Foreground="{Binding HasError, Converter={x:Static vm:BoolBrush.RedOrLo}}" />
+
+                        <!-- Query stats: dim label, bright value -->
+                        <ItemsControl ItemsSource="{Binding StatusSegments}"
+                                      IsVisible="{Binding HasStatusSegments}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="18" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:StatusSegment">
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                        <TextBlock Text="{Binding Label}" IsVisible="{Binding HasLabel}"
+                                                   VerticalAlignment="Center"
+                                                   FontFamily="Cascadia Code,Consolas,monospace" FontSize="11"
+                                                   Foreground="{StaticResource TextLoBrush}" />
+                                        <TextBlock Text="{Binding Value}" VerticalAlignment="Center"
+                                                   FontFamily="Cascadia Code,Consolas,monospace" FontSize="12"
+                                                   Foreground="{Binding IsWarning, Converter={x:Static vm:BoolBrush.AmberOrHi}}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Panel>
                 </Border>
             </Grid>
         </Grid>

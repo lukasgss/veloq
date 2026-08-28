@@ -1,9 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Veloq.Data;
@@ -52,6 +50,14 @@ public sealed partial class MainViewModel : ViewModelBase
     public partial bool HasError { get; set; }
     [ObservableProperty]
     public partial string StatusText { get; set; } = "Add a connection to start.";
+
+    public ObservableCollection<StatusSegment> StatusSegments { get; } = [];
+
+    [ObservableProperty]
+    public partial bool HasStatusSegments { get; set; }
+
+    [ObservableProperty]
+    public partial bool CompareTracking { get; set; }
     [ObservableProperty]
     public partial string SqlText { get; set; } = string.Empty;
     [ObservableProperty]
@@ -81,15 +87,17 @@ public sealed partial class MainViewModel : ViewModelBase
         IsRunning = true;
         HasError = false;
         StatusText = "Running...";
+        ClearStatusSegments();
         RunCommand.NotifyCanExecuteChanged();
 
         try
         {
-            QueryResult result = await SelectedConnection.Runner.RunAsync(QueryText);
+            QueryResult result = await SelectedConnection.Runner.RunAsync(QueryText, BenchmarkOptions.Default);
             if (!result.Success)
             {
                 HasError = true;
                 StatusText = result.Error ?? "Unknown error.";
+                ClearStatusSegments();
                 SqlText = PlanText = ResultsText = string.Empty;
                 return;
             }
@@ -98,30 +106,20 @@ public sealed partial class MainViewModel : ViewModelBase
             PlanText = result.Plan;
             ResultsText = FormatTable(result);
 
-            string executionSummary;
-            if (result.IsSplitQuery && result.QueryCount > 1)
+            if (CompareTracking)
             {
-                executionSummary = $"{result.QueryCount} queries • ✓ intentional split query";
-            }
-            else if (result.QueryCount > 1)
-            {
-                executionSummary = $"{result.QueryCount} queries • ⚠ possible N+1";
-            }
-            else if (result.QueryCount == 1)
-            {
-                executionSummary = "1 query • ✓ single query";
+                await ShowTrackingComparisonAsync(SelectedConnection.Runner, result);
             }
             else
             {
-                executionSummary = "0 queries • client-side result";
+                ShowStatusSegments(result);
             }
-
-            StatusText = $"Query successful ({result.ElapsedMs / 1000.0:0.000} seconds) • {result.RowCount} rows • " + executionSummary;
         }
         catch (Exception ex)
         {
             HasError = true;
             StatusText = $"{ex.GetType().Name}: {ex.Message}";
+            ClearStatusSegments();
         }
         finally
         {
@@ -223,6 +221,106 @@ public sealed partial class MainViewModel : ViewModelBase
     private static void Line(StringBuilder sb, IReadOnlyList<int> widths, IReadOnlyCollection<string> cells)
     {
         sb.AppendLine(string.Join("  ", cells.Select((c, i) => c.PadRight(widths[i]))));
+    }
+
+    private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+
+    private static string FormatMs(double ms) => ms >= 1000 ? $"{ms / 1000.0:0.00} s" : $"{ms:0.0} ms";
+
+    private async Task ShowTrackingComparisonAsync(QueryRunner runner, QueryResult asWritten)
+    {
+        bool writtenIsUntracked = QueryDiagnostics.ContainsAsNoTracking(QueryText);
+
+        BenchmarkOptions matched = BenchmarkOptions.Default with
+        {
+            MeasuredCount = asWritten.Benchmark?.MeasuredCount ?? BenchmarkOptions.Default.MeasuredCount,
+            Adaptive = false,
+        };
+
+        QueryResult counterpart = writtenIsUntracked
+            ? await runner.RunAsync(QueryDiagnostics.RemoveAsNoTracking(QueryText), matched)
+            : await runner.RunAsync(QueryText, matched, noTracking: true);
+
+        if (!counterpart.Success)
+        {
+            ShowStatusSegments(asWritten);
+            return;
+        }
+
+        QueryResult tracked = writtenIsUntracked ? counterpart : asWritten;
+        QueryResult untracked = writtenIsUntracked ? asWritten : counterpart;
+
+        double trackedMs = MedianOf(tracked);
+        double untrackedMs = MedianOf(untracked);
+
+        StatusSegments.Clear();
+        StatusText = string.Empty;
+        StatusSegments.Add(new StatusSegment("tracked", FormatMs(trackedMs)));
+        StatusSegments.Add(new StatusSegment("no tracking", FormatMs(untrackedMs)));
+        StatusSegments.Add(new StatusSegment("difference", FormatDelta(trackedMs, untrackedMs)));
+        StatusSegments.Add(new StatusSegment("returned", Plural(asWritten.RowCount, "row")));
+        StatusSegments.Add(QueryCountSegment(asWritten));
+        HasStatusSegments = true;
+    }
+
+    private static double MedianOf(QueryResult r) => r.Benchmark?.MedianMs ?? r.ElapsedMs;
+
+    private static string FormatDelta(double trackedMs, double untrackedMs)
+    {
+        if (trackedMs <= 0)
+        {
+            return "n/a";
+        }
+
+        double percent = (untrackedMs - trackedMs) / trackedMs * 100;
+
+        return percent.ToString("+0.#;-0.#;0") + "%";
+    }
+
+    private void ClearStatusSegments()
+    {
+        StatusSegments.Clear();
+        HasStatusSegments = false;
+    }
+
+    private void ShowStatusSegments(QueryResult r)
+    {
+        StatusSegments.Clear();
+        StatusText = string.Empty;
+
+        if (r.Benchmark is { } b)
+        {
+            StatusSegments.Add(new StatusSegment("median", FormatMs(b.MedianMs)));
+            StatusSegments.Add(new StatusSegment("p95", FormatMs(b.P95Ms)));
+            StatusSegments.Add(new StatusSegment("range", $"{b.MinMs:0.0}–{FormatMs(b.MaxMs)}"));
+            StatusSegments.Add(new StatusSegment("first run", FormatMs(b.ColdMs)));
+            StatusSegments.Add(new StatusSegment("measured over", Plural(b.MeasuredCount, "run")));
+        }
+        else
+        {
+            StatusSegments.Add(new StatusSegment("took", FormatMs(r.ElapsedMs)));
+        }
+
+        StatusSegments.Add(new StatusSegment("returned", Plural(r.RowCount, "row")));
+        StatusSegments.Add(QueryCountSegment(r));
+        HasStatusSegments = true;
+    }
+
+    private static StatusSegment QueryCountSegment(QueryResult r)
+    {
+        if (r.QueryCount == 0)
+        {
+            return new StatusSegment("using", "no query (client-side)");
+        }
+
+        if (r.QueryCount > 1 && !r.IsSplitQuery)
+        {
+            return new StatusSegment("using", $"{r.QueryCount} queries — possible N+1", IsWarning: true);
+        }
+
+        return r.IsSplitQuery
+            ? new StatusSegment("using", $"{r.QueryCount} queries (split)")
+            : new StatusSegment("using", "1 query");
     }
 
     private static string FormatTable(QueryResult r)

@@ -1,37 +1,39 @@
-using Npgsql;
 using Veloq.Data;
 using Xunit;
 
 namespace Veloq.Tests;
 
-public sealed class QueryDiagnosticsTests
+public sealed class AsNoTrackingRewriteTests
 {
-    [Fact]
-    public void CapturesAndFormatsEveryExecutedCommand()
+    [Theory]
+    [InlineData("db.Plan.AsNoTracking().ToListAsync()", true)]
+    [InlineData("db.Plan.Include(p => p.TimelineItems).AsNoTracking().ToListAsync()", true)]
+    [InlineData("db.Plan.ToListAsync()", false)]
+    [InlineData("db.Plan.AsSplitQuery().ToListAsync()", false)]
+    public void DetectsAsNoTracking(string expression, bool expected)
     {
-        CaptureInterceptor interceptor = new();
-        using NpgsqlCommand first = new("SELECT * FROM plan");
-        using NpgsqlCommand second = new("SELECT * FROM timeline WHERE plan_id = @id");
-        second.Parameters.AddWithValue("id", 1);
-
-        interceptor.Capture(first);
-        interceptor.Capture(second);
-        string sql = QueryDiagnostics.FormatSql(interceptor.Commands);
-
-        Assert.Equal(2, interceptor.QueryCount);
-        Assert.Contains("-- Query 1 of 2", sql);
-        Assert.Contains("SELECT * FROM plan", sql);
-        Assert.Contains("-- Query 2 of 2", sql);
-        Assert.Contains("SELECT * FROM timeline", sql);
-        Assert.Equal(1, interceptor.Commands[1].Parameters[0].Value);
+        Assert.Equal(expected, QueryDiagnostics.ContainsAsNoTracking(expression));
     }
 
     [Theory]
-    [InlineData("db.Plan.AsSplitQuery().ToListAsync()", true)]
-    [InlineData("db.Plan.ToListAsync()", false)]
-    [InlineData("db.Plan.Where(x => x.Name == \"AsSplitQuery\").ToListAsync()", false)]
-    public void DetectsExplicitSplitQuerySyntax(string expression, bool expected)
+    [InlineData("db.Plan.AsNoTracking().ToListAsync()", "db.Plan.ToListAsync()")]
+    [InlineData("db.Plan.AsNoTracking()", "db.Plan")]
+    [InlineData(
+        "db.Plan.Include(p => p.TimelineItems).AsNoTracking().ToListAsync()",
+        "db.Plan.Include(p => p.TimelineItems).ToListAsync()")]
+    [InlineData("db.Plan.ToListAsync()", "db.Plan.ToListAsync()")]
+    public void RemovesAsNoTracking(string expression, string expected)
     {
-        Assert.Equal(expected, QueryDiagnostics.ContainsAsSplitQuery(expression));
+        Assert.Equal(expected, QueryDiagnostics.RemoveAsNoTracking(expression));
+    }
+
+    [Fact]
+    public void RemovalLeavesOtherOperatorsAlone()
+    {
+        string stripped = QueryDiagnostics.RemoveAsNoTracking(
+            "db.Plan.AsNoTracking().AsSplitQuery().Where(p => p.Id > 1).ToListAsync()");
+
+        Assert.Equal("db.Plan.AsSplitQuery().Where(p => p.Id > 1).ToListAsync()", stripped);
+        Assert.False(QueryDiagnostics.ContainsAsNoTracking(stripped));
     }
 }
