@@ -208,10 +208,29 @@ public sealed partial class MainView : UserControl
             ISegment completionSegment,
             EventArgs insertionRequestEventArgs)
         {
-            textArea.Document.Replace(completionSegment, Text);
+            int insertionOffset = completionSegment.Offset;
+            bool isMethod = suggestion.Kind is "Method" or "Extension";
+            bool hasParenthesis = completionSegment.EndOffset < textArea.Document.TextLength &&
+                                  textArea.Document.GetCharAt(completionSegment.EndOffset) == '(';
+            bool hasEmptyParentheses = hasParenthesis &&
+                                       completionSegment.EndOffset + 1 < textArea.Document.TextLength &&
+                                       textArea.Document.GetCharAt(completionSegment.EndOffset + 1) == ')';
+
+            if (!isMethod)
+            {
+                textArea.Document.Replace(completionSegment, Text);
+                return;
+            }
+
+            string replacement = hasParenthesis ? Text : Text + "()";
+            textArea.Document.Replace(completionSegment, replacement);
+
+            bool placeAfterCall = suggestion.CanInvokeWithoutArguments && (!hasParenthesis || hasEmptyParentheses);
+
+            textArea.Caret.Offset = insertionOffset + Text.Length + (placeAfterCall ? 2 : 1);
         }
 
-        private static Control CreateContent(CompletionSuggestion item)
+        private static Grid CreateContent(CompletionSuggestion item)
         {
             (string glyph, string color) = item.Kind switch
             {
@@ -266,6 +285,7 @@ public sealed partial class MainView : UserControl
                 Margin = new Thickness(3, 0),
                 ColumnDefinitions = new ColumnDefinitions("18,7,*,12,Auto"),
             };
+
             Grid.SetColumn(icon, 0);
             Grid.SetColumn(name, 2);
             Grid.SetColumn(detail, 4);

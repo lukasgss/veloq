@@ -5,4 +5,5 @@ public sealed record CompletionSuggestion(
     string Description,
     string Detail,
     string Kind,
+    bool CanInvokeWithoutArguments,
     int Priority);

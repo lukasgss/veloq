@@ -177,7 +177,10 @@ public sealed class QueryRunner
         return symbols
             .Where(IsCompletionSymbol)
             .GroupBy(s => s.Name, StringComparer.Ordinal)
-            .Select(g => ToSuggestion(g.First(), g.Count()))
+            .Select(g => ToSuggestion(
+                g.First(),
+                g.Count(),
+                g.OfType<IMethodSymbol>().Any(CanInvokeWithoutArguments)))
             .OrderByDescending(x => x.Priority)
             .ThenBy(x => x.Text, StringComparer.OrdinalIgnoreCase)
             .Take(500)
@@ -194,7 +197,10 @@ public sealed class QueryRunner
                    or SymbolKind.Namespace;
     }
 
-    private static CompletionSuggestion ToSuggestion(ISymbol symbol, int overloadCount)
+    private static CompletionSuggestion ToSuggestion(
+        ISymbol symbol,
+        int overloadCount,
+        bool canInvokeWithoutArguments)
     {
         int priority = symbol switch
         {
@@ -215,8 +221,12 @@ public sealed class QueryRunner
             description,
             GetCompletionDetail(symbol),
             GetCompletionKind(symbol),
+            canInvokeWithoutArguments,
             priority);
     }
+
+    private static bool CanInvokeWithoutArguments(IMethodSymbol method) =>
+        method.Parameters.All(parameter => parameter.IsOptional || parameter.IsParams);
 
     private static string GetCompletionKind(ISymbol symbol) => symbol switch
     {
