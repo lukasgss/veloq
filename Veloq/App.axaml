@@ -2,14 +2,126 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="using:Veloq"
              x:Class="Veloq.App"
-             RequestedThemeVariant="Default">
-             <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
+             RequestedThemeVariant="Dark">
 
     <Application.DataTemplates>
         <local:ViewLocator />
     </Application.DataTemplates>
 
+    <Application.Resources>
+        <Color x:Key="BgDeep">#0a0e14</Color>
+        <Color x:Key="BgPanel">#0d1420</Color>
+        <Color x:Key="BgEditor">#0b1120</Color>
+        <Color x:Key="BgRaised">#111a2b</Color>
+        <Color x:Key="Border">#1e2a3d</Color>
+        <Color x:Key="Accent">#4aa3ff</Color>
+        <Color x:Key="Green">#2ea043</Color>
+        <Color x:Key="Select">#123a63</Color>
+        <Color x:Key="TextHi">#e6edf3</Color>
+        <Color x:Key="TextLo">#8b98a9</Color>
+        <Color x:Key="Amber">#d29922</Color>
+        <Color x:Key="Red">#f85149</Color>
+
+        <SolidColorBrush x:Key="BgDeepBrush" Color="{StaticResource BgDeep}" />
+        <SolidColorBrush x:Key="BgPanelBrush" Color="{StaticResource BgPanel}" />
+        <SolidColorBrush x:Key="BgEditorBrush" Color="{StaticResource BgEditor}" />
+        <SolidColorBrush x:Key="BgRaisedBrush" Color="{StaticResource BgRaised}" />
+        <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource Border}" />
+        <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource Accent}" />
+        <SolidColorBrush x:Key="SelectBrush" Color="{StaticResource Select}" />
+        <SolidColorBrush x:Key="GreenBrush" Color="{StaticResource Green}" />
+        <SolidColorBrush x:Key="TextHiBrush" Color="{StaticResource TextHi}" />
+        <SolidColorBrush x:Key="TextLoBrush" Color="{StaticResource TextLo}" />
+        <SolidColorBrush x:Key="AmberBrush" Color="{StaticResource Amber}" />
+        <SolidColorBrush x:Key="RedBrush" Color="{StaticResource Red}" />
+    </Application.Resources>
+
     <Application.Styles>
         <FluentTheme />
+
+        <Style Selector="Button.pill">
+            <Setter Property="Background" Value="{StaticResource BgRaisedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextHiBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="14,7" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="{StaticResource GreenBrush}" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="16,7" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#3fb950" />
+        </Style>
+        <Style Selector="Button.link">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6,4" />
+        </Style>
+        <Style Selector="Button.link:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource BgRaisedBrush}" />
+        </Style>
+
+        <!-- LINQPad-ish selection accents -->
+        <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="CornerRadius" Value="5" />
+        </Style>
+        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource SelectBrush}" />
+        </Style>
+        <Style Selector="TabItem">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{StaticResource TextLoBrush}" />
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="TabItem:selected">
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+        </Style>
+
+        <Style Selector="TextBox.code">
+            <Setter Property="FontFamily" Value="Cascadia Code,Consolas,Menlo,monospace" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Background" Value="{StaticResource BgEditorBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextHiBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="AcceptsReturn" Value="True" />
+            <Setter Property="AcceptsTab" Value="True" />
+            <Setter Property="TextWrapping" Value="NoWrap" />
+        </Style>
+
+        <Style Selector="TextBlock.h1">
+            <Setter Property="Foreground" Value="{StaticResource TextHiBrush}" />
+            <Setter Property="FontSize" Value="22" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="TextBlock.body">
+            <Setter Property="Foreground" Value="{StaticResource TextLoBrush}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="LineHeight" Value="20" />
+        </Style>
+        <Style Selector="Border.badge">
+            <Setter Property="Background" Value="{StaticResource BgRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="10,3" />
+        </Style>
+
+        <Style Selector="TextBox.field">
+            <Setter Property="Background" Value="{StaticResource BgEditorBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextHiBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,7" />
+        </Style>
     </Application.Styles>
 </Application>

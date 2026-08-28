@@ -3,16 +3,172 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:Veloq.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             mc:Ignorable="d" d:DesignWidth="1300" d:DesignHeight="820"
              x:Class="Veloq.Views.MainView"
-             x:DataType="vm:MainViewModel">
+             x:DataType="vm:MainViewModel"
+             Background="{StaticResource BgDeepBrush}">
     <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
         <vm:MainViewModel />
     </Design.DataContext>
 
-    <TextBox Text="{Binding Greeting}"
-             HorizontalAlignment="Center"
-             VerticalAlignment="Center" />
+    <Panel>
+        <Grid ColumnDefinitions="260,4,*">
+
+            <!-- ============ SIDEBAR ============ -->
+            <Border Grid.Column="0" Background="{StaticResource BgPanelBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                <Grid RowDefinitions="Auto,*">
+                    <Button Grid.Row="0" Classes="link" Margin="10,10,10,4"
+                            HorizontalAlignment="Left"
+                            Command="{Binding ShowAddConnectionCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="🔌" FontSize="15" VerticalAlignment="Center" />
+                            <TextBlock Text="Add connection" Foreground="{StaticResource AccentBrush}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+
+                    <ListBox Grid.Row="1" Background="Transparent" Margin="4,4"
+                             ItemsSource="{Binding Connections}"
+                             SelectedItem="{Binding SelectedConnection}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ConnectionInfo">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="🗄" FontSize="14" VerticalAlignment="Center" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}"
+                                                   Foreground="{StaticResource TextHiBrush}" FontSize="13" />
+                                        <TextBlock Text="{Binding Subtitle}"
+                                                   Foreground="{StaticResource TextLoBrush}" FontSize="11" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Background="{StaticResource BorderBrush}" />
+
+            <!-- ============ MAIN ============ -->
+            <Grid Grid.Column="2" RowDefinitions="Auto,2*,4,3*,Auto">
+
+                <!-- Toolbar -->
+                <Border Grid.Row="0" Background="{StaticResource BgPanelBrush}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1"
+                        Padding="12,8">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <Button Classes="primary" Command="{Binding RunCommand}"
+                                IsEnabled="{Binding !IsRunning}" Content="▶  Run" />
+                        <Button Classes="pill" Command="{Binding ResetCommand}" Content="Reset" />
+                        <Border Width="1" Background="{StaticResource BorderBrush}" Margin="4,2" />
+                        <TextBlock Text="Language" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextLoBrush}" />
+                        <Border Classes="badge">
+                            <TextBlock Text="C# Expression" Foreground="{StaticResource TextHiBrush}" FontSize="12" />
+                        </Border>
+                        <TextBlock Text="country =" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextLoBrush}" />
+                        <TextBox Classes="field" Width="70" Text="{Binding Country}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Code editor -->
+                <TextBox Grid.Row="1" Classes="code" Text="{Binding QueryText}" />
+
+                <GridSplitter Grid.Row="2" Background="{StaticResource BorderBrush}" />
+
+                <!-- Output tabs -->
+                <Border Grid.Row="3" Background="{StaticResource BgPanelBrush}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+                    <TabControl Padding="0">
+                        <TabItem Header="Results">
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto">
+                                <SelectableTextBlock Text="{Binding ResultsText}" Margin="16"
+                                                     FontFamily="Cascadia Code,Consolas,monospace"
+                                                     FontSize="13" Foreground="{StaticResource TextHiBrush}" />
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="SQL">
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto">
+                                <SelectableTextBlock Text="{Binding SqlText}" Margin="16"
+                                                     FontFamily="Cascadia Code,Consolas,monospace"
+                                                     FontSize="13" Foreground="{StaticResource AccentBrush}" />
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="Query Plan">
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto">
+                                <SelectableTextBlock Text="{Binding PlanText}" Margin="16"
+                                                     FontFamily="Cascadia Code,Consolas,monospace"
+                                                     FontSize="12" Foreground="{StaticResource TextHiBrush}" />
+                            </ScrollViewer>
+                        </TabItem>
+                    </TabControl>
+                </Border>
+
+                <!-- Status bar -->
+                <Border Grid.Row="4" Background="{StaticResource BgDeepBrush}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
+                        Padding="12,6">
+                    <TextBlock Text="{Binding StatusText}"
+                               FontFamily="Cascadia Code,Consolas,monospace" FontSize="12"
+                               Foreground="{Binding HasError, Converter={x:Static vm:BoolBrush.RedOrLo}}" />
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- ============ ADD CONNECTION DIALOG ============ -->
+        <Border IsVisible="{Binding IsAddingConnection}" Background="#aa000000">
+            <Border Width="440" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{StaticResource BgPanelBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="12" Padding="26">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Add PostgreSQL connection" Classes="h1" FontSize="18" />
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Display name (optional)" Classes="body" />
+                        <TextBox Classes="field" Text="{Binding NewName}" />
+                    </StackPanel>
+                    <Grid ColumnDefinitions="*,12,120">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Host" Classes="body" />
+                            <TextBox Classes="field" Text="{Binding NewHost}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="4">
+                            <TextBlock Text="Port" Classes="body" />
+                            <TextBox Classes="field" Text="{Binding NewPort}" />
+                        </StackPanel>
+                    </Grid>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Database" Classes="body" />
+                        <TextBox Classes="field" Text="{Binding NewDatabase}" />
+                    </StackPanel>
+                    <Grid ColumnDefinitions="*,12,*">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Username" Classes="body" />
+                            <TextBox Classes="field" Text="{Binding NewUsername}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="4">
+                            <TextBlock Text="Password" Classes="body" />
+                            <TextBox Classes="field" PasswordChar="•" Text="{Binding NewPassword}" />
+                        </StackPanel>
+                    </Grid>
+                    <CheckBox IsChecked="{Binding SeedSampleData}"
+                              Foreground="{StaticResource TextLoBrush}"
+                              Content="Create &amp; seed sample Customers/Orders schema" />
+
+                    <TextBlock Text="{Binding ConnectionStatus}" Classes="body"
+                               Foreground="{Binding ConnectionFailed, Converter={x:Static vm:BoolBrush.RedOrLo}}" />
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                        <Button Classes="pill" Command="{Binding CancelAddConnectionCommand}"
+                                Content="Cancel" />
+                        <Button Classes="primary" Command="{Binding SaveConnectionCommand}"
+                                IsEnabled="{Binding !IsConnecting}" Content="Connect" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
+    </Panel>
 </UserControl>
