@@ -17,6 +17,7 @@ public sealed class QueryRunner
 {
     private readonly string _connectionString;
     private readonly List<MetadataReference> _references;
+    private readonly Func<Task<InitializedState>> _initializeState;
 
     private readonly SemaphoreSlim _modelLock = new(1, 1);
     private volatile InitializedState? _initializedState;
@@ -50,6 +51,18 @@ public sealed class QueryRunner
     {
         _connectionString = connectionString;
         _references = BuildReferences();
+        _initializeState = BuildInitializedStateAsync;
+    }
+
+    internal QueryRunner(Func<Task<(CompiledModel Model, ScriptOptions ScriptOptions)>> initializeState)
+    {
+        _connectionString = string.Empty;
+        _references = [];
+        _initializeState = async () =>
+        {
+            (CompiledModel model, ScriptOptions scriptOptions) = await initializeState();
+            return new InitializedState(model, scriptOptions);
+        };
     }
 
     private static List<MetadataReference> BuildReferences()
@@ -95,17 +108,23 @@ public sealed class QueryRunner
                 return lockedInitializedState;
             }
 
-            DatabaseModel db = await PgSchemaReader.ReadAsync(_connectionString);
-            List<MetadataReference> references = [.. _references];
-            CompiledModel model = ModelCompiler.Compile(db, references);
-            ScriptOptions scriptOptions = BuildScriptOptions(model);
-
-            return _initializedState = new InitializedState(model, scriptOptions);
+            InitializedState newState = await _initializeState();
+            return _initializedState = newState;
         }
         finally
         {
             _modelLock.Release();
         }
+    }
+
+    private async Task<InitializedState> BuildInitializedStateAsync()
+    {
+        DatabaseModel db = await PgSchemaReader.ReadAsync(_connectionString);
+        List<MetadataReference> references = [.. _references];
+        CompiledModel model = ModelCompiler.Compile(db, references);
+        ScriptOptions scriptOptions = BuildScriptOptions(model);
+
+        return new InitializedState(model, scriptOptions);
     }
 
     private DbContext CreateContext(CompiledModel model, CaptureInterceptor interceptor, bool noTracking)
