@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -19,11 +18,6 @@ namespace Veloq.Data;
 
 public sealed class QueryRunner
 {
-    /// <summary>Maximum number of rows rendered into the results grid. The full result is
-    /// still enumerated (so <see cref="QueryResult.RowCount"/> stays accurate); this only
-    /// caps how many are turned into display strings so a huge result set can't freeze the UI.</summary>
-    private const int MaxDisplayRows = 500;
-
     private readonly string _connectionString;
     private readonly List<MetadataReference> _references;
 
@@ -301,7 +295,7 @@ public sealed class QueryRunner
                 return QueryResult.Fail("Compilation error:\n" + string.Join("\n", ex.Diagnostics));
             }
 
-            var (columns, rows, count) = Materialize(value);
+            var (columns, rows, count) = ResultMaterializer.Materialize(value);
             sw.Stop();
 
             string sql = interceptor.LastSql ?? "(query executed client-side — no SQL generated)";
@@ -358,62 +352,6 @@ public sealed class QueryRunner
 
         return trimmed;
     }
-
-    private static (List<string>, List<string[]>, int) Materialize(object? value)
-    {
-        List<string> columns = [];
-        List<string[]> rows = [];
-
-        if (value is not IEnumerable enumerable || value is string)
-        {
-            columns.Add("Value");
-            rows.Add([Format(value)]);
-
-            return (columns, rows, 1);
-        }
-
-        List<object?> items = enumerable.Cast<object?>().ToList();
-        int total = items.Count;
-        if (total == 0)
-        {
-            return (columns, rows, 0);
-        }
-
-        Type? elemType = items.First(i => i is not null)?.GetType();
-        PropertyInfo[]? props = elemType is null || elemType.IsPrimitive || elemType == typeof(string) || elemType == typeof(decimal)
-            ? null
-            : elemType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-
-        if (props is null)
-        {
-            columns.Add("Value");
-
-            foreach (object? item in items.Take(MaxDisplayRows))
-            {
-                rows.Add([Format(item)]);
-            }
-        }
-        else
-        {
-            columns.AddRange(props.Select(p => p.Name));
-
-            foreach (object? item in items.Take(MaxDisplayRows))
-            {
-                rows.Add(props.Select(p => Format(p.GetValue(item))).ToArray());
-            }
-        }
-
-        return (columns, rows, total);
-    }
-
-    private static string Format(object? value) => value switch
-    {
-        null => "null",
-        DateTime { Kind: DateTimeKind.Utc } d => d.ToLocalTime().ToString("yyyy-MM-dd HH:mm:sszzz"),
-        DateTime d => d.ToString("yyyy-MM-dd HH:mm:ss"),
-        DateTimeOffset o => o.ToLocalTime().ToString("yyyy-MM-dd HH:mm:sszzz"),
-        _ => value.ToString() ?? "null",
-    };
 
     private async Task<string> ExplainAsync(CaptureInterceptor interceptor)
     {
