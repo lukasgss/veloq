@@ -18,6 +18,8 @@ public sealed class QueryRunner
 {
     private readonly string _connectionString;
     private readonly List<MetadataReference> _references;
+    private readonly Func<Task<DatabaseModel>> _readModel;
+    private readonly Func<DatabaseModel, IReadOnlyList<MetadataReference>, CompiledModel> _compileModel;
 
     private readonly SemaphoreSlim _modelLock = new(1, 1);
     private CompiledModel? _model;
@@ -49,6 +51,18 @@ public sealed class QueryRunner
     {
         _connectionString = connectionString;
         _references = BuildReferences();
+        _readModel = () => PgSchemaReader.ReadAsync(_connectionString);
+        _compileModel = ModelCompiler.Compile;
+    }
+
+    internal QueryRunner(
+        Func<Task<DatabaseModel>> readModel,
+        Func<DatabaseModel, IReadOnlyList<MetadataReference>, CompiledModel> compileModel)
+    {
+        _connectionString = string.Empty;
+        _references = BuildReferences();
+        _readModel = readModel;
+        _compileModel = compileModel;
     }
 
     private static List<MetadataReference> BuildReferences()
@@ -87,9 +101,9 @@ public sealed class QueryRunner
                 return _model;
             }
 
-            DatabaseModel db = await PgSchemaReader.ReadAsync(_connectionString);
+            DatabaseModel db = await _readModel();
             List<MetadataReference> references = [.. _references];
-            _model = ModelCompiler.Compile(db, references);
+            _model = await Task.Run(() => _compileModel(db, references));
 
             return _model;
         }
