@@ -13,8 +13,14 @@ dotnet run --project Veloq.Desktop
 1. Enter your PostgreSQL connection details on the connect screen.
 2. (Optional) tick *seed sample Customers/Orders schema* to load a demo dataset.
 3. Write a LINQ expression that returns an `IEnumerable`, using the in-scope symbols:
-   - `db` — an `ECommerceDbContext`
+   - `db` — a `DbContext` **generated at runtime from your live schema** (one
+     `DbSet`/entity per table, with navigation properties for single-column FKs)
    - `country` — the toolbar `country` string
+
+   On first Run, Veloq introspects the connected database (`information_schema` /
+   `pg_catalog`), emits a matching EF Core model, compiles it in-memory with Roslyn,
+   and runs your LINQ against it. Table `orders` → `db.Orders`, column `full_name`
+   → `.FullName`, FK `books.author_id` → `book.Author` / `author.BooksItems`.
 4. **Run** to see Results / SQL / Query Plan and the round-trip count.
 
 The default expression is a deliberate **N+1**; rewrite it into a single query and
@@ -24,7 +30,8 @@ watch the round-trip count drop from N+1 to 1.
 
 ```
 Veloq/            shared UI + query engine
-  Data/           EF Core context, entities, Roslyn QueryRunner, EXPLAIN
+  Data/           Roslyn QueryRunner, capture interceptor, EXPLAIN, sample schema
+  Data/Schema/    PostgreSQL introspection → C# emitter → in-memory model compiler
   ViewModels/     MVVM
   Views/          connect screen + editor/output workspace
 Veloq.Desktop/    desktop entry point

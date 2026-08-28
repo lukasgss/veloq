@@ -20,7 +20,7 @@ public sealed partial class MainViewModel : ViewModelBase
         db.Customers
           .Where(c => c.Country == country)
           .OrderBy(c => c.Id)
-          .AsEnumerable()
+          .ToList()
           .Select(c => new CustomerTotal
           {
               CustomerId = c.Id,
@@ -45,7 +45,7 @@ public sealed partial class MainViewModel : ViewModelBase
     }
 
     [ObservableProperty]
-    public partial string QueryText { get; set; } = "";
+    public partial string QueryText { get; set; } = string.Empty;
     [ObservableProperty]
     public partial string Country { get; set; } = "US";
     [ObservableProperty]
@@ -55,11 +55,11 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     public partial string StatusText { get; set; } = "Add a connection to start.";
     [ObservableProperty]
-    public partial string SqlText { get; set; } = "";
+    public partial string SqlText { get; set; } = string.Empty;
     [ObservableProperty]
-    public partial string PlanText { get; set; } = "";
+    public partial string PlanText { get; set; } = string.Empty;
     [ObservableProperty]
-    public partial string ResultsText { get; set; } = "";
+    public partial string ResultsText { get; set; } = string.Empty;
 
     [RelayCommand]
     private void Reset() => QueryText = NaiveQuery;
@@ -86,7 +86,7 @@ public sealed partial class MainViewModel : ViewModelBase
             {
                 HasError = true;
                 StatusText = result.Error ?? "Unknown error.";
-                SqlText = PlanText = ResultsText = "";
+                SqlText = PlanText = ResultsText = string.Empty;
                 return;
             }
 
