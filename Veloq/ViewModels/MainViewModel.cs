@@ -330,17 +330,25 @@ public sealed partial class MainViewModel : ViewModelBase
             return "(no rows)";
         }
 
-        int[] widths = r.Columns.Select((c, i) => Math.Max(c.Length, r.Rows.Max(row => i < row.Length ? row[i].Length : 0)))
+        int numWidth = Math.Max(1, r.Rows.Count.ToString().Length);
+
+        int[] colWidths = r.Columns.Select((c, i) => Math.Max(c.Length, r.Rows.Max(row => i < row.Length ? row[i].Length : 0)))
             .ToArray();
+
+        int[] widths = new int[colWidths.Length + 1];
+        widths[0] = numWidth;
+        Array.Copy(colWidths, 0, widths, 1, colWidths.Length);
 
         StringBuilder sb = new();
 
-        Line(sb, widths, r.Columns);
+        Line(sb, widths, r.Columns.Prepend("#").ToArray());
         sb.AppendLine(string.Join("  ", widths.Select(w => new string('─', w))));
 
+        int rowNum = 1;
         foreach (string[] row in r.Rows)
         {
-            Line(sb, widths, row);
+            Line(sb, widths, row.Prepend(rowNum.ToString()).ToArray());
+            rowNum++;
         }
 
         if (r.RowCount > r.Rows.Count)
