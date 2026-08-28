@@ -12,22 +12,23 @@ namespace Veloq.ViewModels;
 
 public sealed partial class MainViewModel : ViewModelBase
 {
-    public const string NaiveQuery =
-        """
-        // Naive N+1: one query for the customers, then one query PER customer.
-        // Rewrite so EF Core emits a single SQL statement, then Run again to
-        // compare the plan and round-trip count.
-        db.Customers
-          .OrderBy(c => c.Id)
-          .ToList()
-          .Select(c => new CustomerTotal
-          {
-              CustomerId = c.Id,
-              Total = db.Orders.Where(o => o.CustomerId == c.Id).Sum(o => o.Total)
-          })
-        """;
+    public MainViewModel()
+    {
+        try
+        {
+            foreach (ConnectionInfo connection in ConnectionStore.Load())
+            {
+                Connections.Add(connection);
+            }
 
-    public MainViewModel() => QueryText = NaiveQuery;
+            SelectedConnection = Connections.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            HasError = true;
+            StatusText = $"Could not load saved connections: {ex.Message}";
+        }
+    }
 
     public ObservableCollection<ConnectionInfo> Connections { get; } = [];
 
@@ -38,7 +39,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         StatusText = value is null
             ? "Add a connection to start."
-            : $"Connected to {value.Name} ({value.Subtitle}).";
+            : $"Selected {value.Name} ({value.Subtitle}).";
 
         RunCommand.NotifyCanExecuteChanged();
     }
@@ -59,7 +60,7 @@ public sealed partial class MainViewModel : ViewModelBase
     public partial string ResultsText { get; set; } = string.Empty;
 
     [RelayCommand]
-    private void Reset() => QueryText = NaiveQuery;
+    private void Reset() => QueryText = string.Empty;
 
     public Task<IReadOnlyList<CompletionSuggestion>> GetCompletionsAsync(string text, int position)
     {
@@ -146,9 +147,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     public partial string NewPassword { get; set; } = string.Empty;
 
-    [ObservableProperty]
-    public partial bool SeedSampleData { get; set; }
-
     [RelayCommand]
     private void ShowAddConnection()
     {
@@ -173,15 +171,10 @@ public sealed partial class MainViewModel : ViewModelBase
         ConnectionStatus = "Connecting…";
         try
         {
-            string cs = $"Host={NewHost};Port={NewPort};Database={NewDatabase};Username={NewUsername};Password={NewPassword}";
+            string cs = ConnectionInfo.BuildConnectionString(
+                NewHost, NewPort, NewDatabase, NewUsername, NewPassword);
             QueryRunner runner = new(cs);
             string version = await runner.TestConnectionAsync();
-
-            if (SeedSampleData)
-            {
-                ConnectionStatus = "Seeding sample schema…";
-                await runner.SeedSampleSchemaAsync();
-            }
 
             ConnectionStatus = "Reading database schema…";
             await runner.GetModelAsync();
@@ -197,6 +190,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 Runner = runner,
             };
 
+            ConnectionStore.Save(Connections.Append(conn));
             Connections.Add(conn);
             SelectedConnection = conn;
             IsAddingConnection = false;

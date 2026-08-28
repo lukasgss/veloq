@@ -153,10 +153,6 @@
                             <TextBox Classes="field" PasswordChar="•" Text="{Binding NewPassword}" />
                         </StackPanel>
                     </Grid>
-                    <CheckBox IsChecked="{Binding SeedSampleData}"
-                              Foreground="{StaticResource TextLoBrush}"
-                              Content="Create &amp; seed sample Customers/Orders schema" />
-
                     <TextBlock Text="{Binding ConnectionStatus}" Classes="body"
                                Foreground="{Binding ConnectionFailed, Converter={x:Static vm:BoolBrush.RedOrLo}}" />
 

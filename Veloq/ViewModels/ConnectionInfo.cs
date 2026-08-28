@@ -1,3 +1,4 @@
+using Npgsql;
 using Veloq.Data;
 
 namespace Veloq.ViewModels;
@@ -14,5 +15,19 @@ public sealed class ConnectionInfo
 
     public string Subtitle => $"{Host}:{Port}/{Database}";
 
-    public string ConnectionString => $"Host={Host};Port={Port};Database={Database};Username={Username};Password={Password}";
+    public string ConnectionString => BuildConnectionString(Host, Port, Database, Username, Password);
+
+    public static string BuildConnectionString(
+        string host,
+        string port,
+        string database,
+        string username,
+        string password) => new NpgsqlConnectionStringBuilder
+    {
+        Host = host,
+        Port = int.Parse(port),
+        Database = database,
+        Username = username,
+        Password = password,
+    }.ConnectionString;
 }

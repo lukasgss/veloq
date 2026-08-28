@@ -107,8 +107,6 @@ public sealed class QueryRunner
         }
     }
 
-    public void InvalidateModel() => _model = null;
-
     private DbContext CreateContext(CompiledModel model, CaptureInterceptor interceptor)
     {
         DbContextOptions options = new DbContextOptionsBuilder()
@@ -272,18 +270,6 @@ public sealed class QueryRunner
         await conn.OpenAsync();
         return conn.PostgreSqlVersion.ToString();
     }
-
-    public Task SeedSampleSchemaAsync() => Task.Run(() =>
-    {
-        DbContextOptions<ECommerceDbContext> options = new DbContextOptionsBuilder<ECommerceDbContext>()
-            .UseNpgsql(_connectionString)
-            .Options;
-
-        using ECommerceDbContext db = new(options);
-
-        db.EnsureSeeded();
-        InvalidateModel();
-    });
 
     public async Task<QueryResult> RunAsync(string expression)
     {
