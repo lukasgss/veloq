@@ -9,6 +9,7 @@ public sealed class QueryResult
     public string Sql { get; init; } = string.Empty;
     public string Plan { get; init; } = string.Empty;
     public int QueryCount { get; init; }
+    public bool IsSplitQuery { get; init; }
     public long ElapsedMs { get; init; }
     public IReadOnlyList<string> Columns { get; init; } = new List<string>();
     public IReadOnlyList<string[]> Rows { get; init; } = new List<string[]>();

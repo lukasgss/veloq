@@ -98,12 +98,25 @@ public sealed partial class MainViewModel : ViewModelBase
             PlanText = result.Plan;
             ResultsText = FormatTable(result);
 
-            var warn = result.QueryCount > 1
-                ? $"  ⚠ N+1 — {result.QueryCount} round-trips"
-                : "  ✓ single query";
-            StatusText =
-                $"Query successful ({result.ElapsedMs / 1000.0:0.000} seconds) • {result.RowCount} rows • " +
-                $"{result.QueryCount} quer{(result.QueryCount == 1 ? "y" : "ies")}{warn}";
+            string executionSummary;
+            if (result.IsSplitQuery && result.QueryCount > 1)
+            {
+                executionSummary = $"{result.QueryCount} queries • ✓ intentional split query";
+            }
+            else if (result.QueryCount > 1)
+            {
+                executionSummary = $"{result.QueryCount} queries • ⚠ possible N+1";
+            }
+            else if (result.QueryCount == 1)
+            {
+                executionSummary = "1 query • ✓ single query";
+            }
+            else
+            {
+                executionSummary = "0 queries • client-side result";
+            }
+
+            StatusText = $"Query successful ({result.ElapsedMs / 1000.0:0.000} seconds) • {result.RowCount} rows • " + executionSummary;
         }
         catch (Exception ex)
         {

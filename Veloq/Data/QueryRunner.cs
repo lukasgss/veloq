@@ -298,11 +298,11 @@ public sealed class QueryRunner
             var (columns, rows, count) = ResultMaterializer.Materialize(value);
             sw.Stop();
 
-            string sql = interceptor.LastSql ?? "(query executed client-side — no SQL generated)";
+            string sql = QueryDiagnostics.FormatSql(interceptor.Commands);
 
-            string plan = interceptor.LastSql is null
+            string plan = interceptor.Commands.Count == 0
                 ? "(no server-side query to explain)"
-                : await ExplainAsync(interceptor);
+                : await ExplainAsync(interceptor.Commands);
 
             return new QueryResult
             {
@@ -310,6 +310,7 @@ public sealed class QueryRunner
                 Sql = sql,
                 Plan = plan,
                 QueryCount = interceptor.QueryCount,
+                IsSplitQuery = QueryDiagnostics.ContainsAsSplitQuery(expression),
                 ElapsedMs = sw.ElapsedMilliseconds,
                 Columns = columns,
                 Rows = rows,
@@ -353,30 +354,44 @@ public sealed class QueryRunner
         return trimmed;
     }
 
-    private async Task<string> ExplainAsync(CaptureInterceptor interceptor)
+    private async Task<string> ExplainAsync(IReadOnlyList<CapturedCommand> commands)
     {
         try
         {
             await using NpgsqlConnection conn = new(_connectionString);
             await conn.OpenAsync();
 
-            await using NpgsqlCommand cmd = conn.CreateCommand();
-            cmd.CommandText = $"EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT TEXT) {interceptor.LastSql}";
-
-            foreach ((string name, object? val) in interceptor.LastParams)
+            StringBuilder output = new();
+            for (int index = 0; index < commands.Count; index++)
             {
-                cmd.Parameters.Add(new NpgsqlParameter(name, val ?? DBNull.Value));
+                CapturedCommand captured = commands[index];
+                await using NpgsqlCommand command = conn.CreateCommand();
+                command.CommandText = $"EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT TEXT) {captured.Sql}";
+
+                foreach ((string name, object? value) in captured.Parameters)
+                {
+                    command.Parameters.Add(new NpgsqlParameter(name, value ?? DBNull.Value));
+                }
+
+                if (index > 0)
+                {
+                    output.AppendLine().AppendLine();
+                }
+
+                if (commands.Count > 1)
+                {
+                    output.AppendLine($"Query {index + 1} of {commands.Count}");
+                    output.AppendLine(new string('─', 24));
+                }
+
+                await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    output.AppendLine(reader.GetString(0));
+                }
             }
 
-            StringBuilder sb = new();
-
-            await using NpgsqlDataReader reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                sb.AppendLine(reader.GetString(0));
-            }
-
-            return sb.ToString().TrimEnd();
+            return output.ToString().TrimEnd();
         }
         catch (Exception ex)
         {

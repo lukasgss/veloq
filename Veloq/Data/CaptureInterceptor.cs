@@ -5,29 +5,27 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Veloq.Data;
 
-/// <summary>Records every SQL command EF executes so we can count round-trips (N+1)
-/// and re-run the last statement through EXPLAIN ANALYZE.</summary>
+public sealed record CapturedCommand(
+    string Sql,
+    IReadOnlyList<(string Name, object? Value)> Parameters);
+
+/// <summary>Records every SQL command EF executes so diagnostics can show and explain
+/// all round-trips, including intentional split queries.</summary>
 public sealed class CaptureInterceptor : DbCommandInterceptor
 {
-    public int QueryCount { get; private set; }
-    public string? LastSql { get; private set; }
-    public List<(string Name, object? Value)> LastParams { get; private set; } = [];
+    public List<CapturedCommand> Commands { get; } = [];
+    public int QueryCount => Commands.Count;
 
-    public void Reset()
-    {
-        QueryCount = 0;
-        LastSql = null;
-        LastParams = [];
-    }
+    public void Reset() => Commands.Clear();
 
-    private void Capture(DbCommand command)
+    internal void Capture(DbCommand command)
     {
-        QueryCount++;
-        LastSql = command.CommandText;
-        LastParams = command.Parameters
+        List<(string Name, object? Value)> parameters = command.Parameters
             .Cast<DbParameter>()
-            .Select(p => (p.ParameterName, p.Value))
+            .Select(parameter => (parameter.ParameterName, parameter.Value))
             .ToList();
+
+        Commands.Add(new CapturedCommand(command.CommandText, parameters));
     }
 
     public override InterceptionResult<DbDataReader> ReaderExecuting(
