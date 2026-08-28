@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Veloq.Data;
@@ -10,11 +11,25 @@ namespace Veloq.ViewModels;
 
 public sealed partial class MainViewModel : ViewModelBase
 {
+    private readonly Func<ConnectionInfo, Task> _prefetchConnection;
+    private readonly Func<Action, Task> _dispatchToUi;
+
     public MainViewModel()
+        : this(ConnectionStore.Load, connection => connection.Runner.GetModelAsync())
     {
+    }
+
+    internal MainViewModel(
+        Func<IReadOnlyList<ConnectionInfo>> loadConnections,
+        Func<ConnectionInfo, Task> prefetchConnection,
+        Func<Action, Task>? dispatchToUi = null)
+    {
+        _prefetchConnection = prefetchConnection;
+        _dispatchToUi = dispatchToUi ?? DispatchToUiAsync;
+
         try
         {
-            foreach (ConnectionInfo connection in ConnectionStore.Load())
+            foreach (ConnectionInfo connection in loadConnections())
             {
                 Connections.Add(connection);
             }
@@ -35,11 +50,46 @@ public sealed partial class MainViewModel : ViewModelBase
 
     partial void OnSelectedConnectionChanged(ConnectionInfo? value)
     {
+        HasError = false;
         StatusText = value is null
             ? "Add a connection to start."
             : $"Selected {value.Name} ({value.Subtitle}).";
 
         RunCommand.NotifyCanExecuteChanged();
+
+        if (value is not null)
+        {
+            PrefetchTablesAndIntellisenseOffUiThread(value);
+        }
+    }
+
+    private void PrefetchTablesAndIntellisenseOffUiThread(ConnectionInfo connection)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _prefetchConnection(connection);
+            }
+            catch (Exception ex)
+            {
+                await _dispatchToUi(() =>
+                {
+                    if (!ReferenceEquals(SelectedConnection, connection))
+                    {
+                        return;
+                    }
+
+                    HasError = true;
+                    StatusText = $"{ex.GetType().Name}: {ex.Message}";
+                });
+            }
+        });
+    }
+
+    private static async Task DispatchToUiAsync(Action action)
+    {
+        await Dispatcher.UIThread.InvokeAsync(action);
     }
 
     [ObservableProperty]
@@ -306,20 +356,20 @@ public sealed partial class MainViewModel : ViewModelBase
         HasStatusSegments = true;
     }
 
-    private static StatusSegment QueryCountSegment(QueryResult r)
+    private static StatusSegment QueryCountSegment(QueryResult result)
     {
-        if (r.QueryCount == 0)
+        if (result.QueryCount == 0)
         {
             return new StatusSegment("using", "no query (client-side)");
         }
 
-        if (r.QueryCount > 1 && !r.IsSplitQuery)
+        if (result.QueryCount > 1 && !result.IsSplitQuery)
         {
-            return new StatusSegment("using", $"{r.QueryCount} queries — possible N+1", IsWarning: true);
+            return new StatusSegment("using", $"{result.QueryCount} queries — possible N+1", IsWarning: true);
         }
 
-        return r.IsSplitQuery
-            ? new StatusSegment("using", $"{r.QueryCount} queries (split)")
+        return result.IsSplitQuery
+            ? new StatusSegment("using", $"{result.QueryCount} queries (split)")
             : new StatusSegment("using", "1 query");
     }
 
