@@ -72,11 +72,12 @@ public sealed class QueryRunnerTests
     }
 
     [Fact]
-    public async Task GetCompletionsInitializesModelOffUiHandlerThread()
+    public async Task GetCompletionsUsesConnectionStringInitializationPathOffUiHandlerThread()
     {
         int uiHandlerThreadId = 0;
         int compilerThreadId = 0;
         QueryRunner runner = new(
+            "Host=unused",
             () => Task.FromResult(new DatabaseModel()),
             (model, references) =>
             {

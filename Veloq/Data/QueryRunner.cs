@@ -49,11 +49,12 @@ public sealed class QueryRunner
     ];
 
     public QueryRunner(string connectionString)
+        : this(
+            connectionString,
+            () => PgSchemaReader.ReadAsync(connectionString),
+            ModelCompiler.Compile,
+            () => TestDatabaseConnectionAsync(connectionString))
     {
-        _connectionString = connectionString;
-        _references = BuildReferences();
-        _initializeState = BuildInitializedStateAsync;
-        _testConnection = TestDatabaseConnectionAsync;
     }
 
     internal QueryRunner(
@@ -71,19 +72,23 @@ public sealed class QueryRunner
     }
 
     internal QueryRunner(
+        string connectionString,
         Func<Task<DatabaseModel>> readModel,
         Func<DatabaseModel, IReadOnlyList<MetadataReference>, CompiledModel> compileModel)
+        : this(connectionString, readModel, compileModel, () => Task.FromResult(string.Empty))
     {
-        _connectionString = string.Empty;
+    }
+
+    private QueryRunner(
+        string connectionString,
+        Func<Task<DatabaseModel>> readModel,
+        Func<DatabaseModel, IReadOnlyList<MetadataReference>, CompiledModel> compileModel,
+        Func<Task<string>> testConnection)
+    {
+        _connectionString = connectionString;
         _references = BuildReferences();
-        _initializeState = async () =>
-        {
-            DatabaseModel db = await readModel();
-            List<MetadataReference> references = [.. _references];
-            CompiledModel model = await Task.Run(() => compileModel(db, references));
-            return new InitializedState(model, BuildScriptOptions(model));
-        };
-        _testConnection = () => Task.FromResult(string.Empty);
+        _initializeState = () => BuildInitializedStateAsync(readModel, compileModel);
+        _testConnection = testConnection;
     }
 
     private static List<MetadataReference> BuildReferences()
@@ -138,11 +143,13 @@ public sealed class QueryRunner
         }
     }
 
-    private async Task<InitializedState> BuildInitializedStateAsync()
+    private async Task<InitializedState> BuildInitializedStateAsync(
+        Func<Task<DatabaseModel>> readModel,
+        Func<DatabaseModel, IReadOnlyList<MetadataReference>, CompiledModel> compileModel)
     {
-        DatabaseModel db = await PgSchemaReader.ReadAsync(_connectionString);
+        DatabaseModel db = await readModel();
         List<MetadataReference> references = [.. _references];
-        CompiledModel model = await Task.Run(() => ModelCompiler.Compile(db, references));
+        CompiledModel model = await Task.Run(() => compileModel(db, references));
         ScriptOptions scriptOptions = BuildScriptOptions(model);
 
         return new InitializedState(model, scriptOptions);
@@ -338,9 +345,9 @@ public sealed class QueryRunner
 
     public Task<string> TestConnectionAsync() => _testConnection();
 
-    private async Task<string> TestDatabaseConnectionAsync()
+    private static async Task<string> TestDatabaseConnectionAsync(string connectionString)
     {
-        await using NpgsqlConnection conn = new(_connectionString);
+        await using NpgsqlConnection conn = new(connectionString);
         await conn.OpenAsync();
         return conn.PostgreSqlVersion.ToString();
     }
