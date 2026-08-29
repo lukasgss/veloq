@@ -70,6 +70,22 @@ public sealed class QueryRunner
         _testConnection = testConnection ?? (() => Task.FromResult(string.Empty));
     }
 
+    internal QueryRunner(
+        Func<Task<DatabaseModel>> readModel,
+        Func<DatabaseModel, IReadOnlyList<MetadataReference>, CompiledModel> compileModel)
+    {
+        _connectionString = string.Empty;
+        _references = BuildReferences();
+        _initializeState = async () =>
+        {
+            DatabaseModel db = await readModel();
+            List<MetadataReference> references = [.. _references];
+            CompiledModel model = await Task.Run(() => compileModel(db, references));
+            return new InitializedState(model, BuildScriptOptions(model));
+        };
+        _testConnection = () => Task.FromResult(string.Empty);
+    }
+
     private static List<MetadataReference> BuildReferences()
     {
         List<Assembly> assemblies = AppDomain.CurrentDomain.GetAssemblies()
@@ -126,7 +142,7 @@ public sealed class QueryRunner
     {
         DatabaseModel db = await PgSchemaReader.ReadAsync(_connectionString);
         List<MetadataReference> references = [.. _references];
-        CompiledModel model = ModelCompiler.Compile(db, references);
+        CompiledModel model = await Task.Run(() => ModelCompiler.Compile(db, references));
         ScriptOptions scriptOptions = BuildScriptOptions(model);
 
         return new InitializedState(model, scriptOptions);

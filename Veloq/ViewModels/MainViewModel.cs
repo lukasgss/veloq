@@ -13,6 +13,7 @@ public sealed partial class MainViewModel : ViewModelBase
 {
     private readonly Func<string, QueryRunner> _createRunner;
     private readonly Action<IEnumerable<ConnectionInfo>> _saveConnections;
+    private readonly Func<ConnectionInfo, Task> _prefetchConnection;
     private readonly Func<Action, Task> _dispatchToUi;
 
     public MainViewModel()
@@ -25,9 +26,28 @@ public sealed partial class MainViewModel : ViewModelBase
         Func<string, QueryRunner> createRunner,
         Action<IEnumerable<ConnectionInfo>> saveConnections,
         Func<Action, Task>? dispatchToUi = null)
+        : this(loadConnections, createRunner, saveConnections, connection => connection.Runner.GetModelAsync(), dispatchToUi)
+    {
+    }
+
+    internal MainViewModel(
+        Func<IReadOnlyList<ConnectionInfo>> loadConnections,
+        Func<ConnectionInfo, Task> prefetchConnection,
+        Func<Action, Task>? dispatchToUi = null)
+        : this(loadConnections, connectionString => new QueryRunner(connectionString), _ => { }, prefetchConnection, dispatchToUi)
+    {
+    }
+
+    private MainViewModel(
+        Func<IReadOnlyList<ConnectionInfo>> loadConnections,
+        Func<string, QueryRunner> createRunner,
+        Action<IEnumerable<ConnectionInfo>> saveConnections,
+        Func<ConnectionInfo, Task> prefetchConnection,
+        Func<Action, Task>? dispatchToUi)
     {
         _createRunner = createRunner;
         _saveConnections = saveConnections;
+        _prefetchConnection = prefetchConnection;
         _dispatchToUi = dispatchToUi ?? DispatchToUiAsync;
 
         try
@@ -53,6 +73,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     partial void OnSelectedConnectionChanged(ConnectionInfo? value)
     {
+        HasError = false;
         StatusText = value is null
             ? "Add a connection to start."
             : $"Selected {value.Name} ({value.Subtitle}).";
@@ -61,22 +82,27 @@ public sealed partial class MainViewModel : ViewModelBase
 
         if (value is not null)
         {
-            PrefetchTablesAndIntellisenseOffUiThread(value.Runner);
+            PrefetchTablesAndIntellisenseOffUiThread(value);
         }
     }
 
-    private void PrefetchTablesAndIntellisenseOffUiThread(QueryRunner runner)
+    private void PrefetchTablesAndIntellisenseOffUiThread(ConnectionInfo connection)
     {
         _ = Task.Run(async () =>
         {
             try
             {
-                await runner.GetModelAsync();
+                await _prefetchConnection(connection);
             }
             catch (Exception ex)
             {
                 await _dispatchToUi(() =>
                 {
+                    if (!ReferenceEquals(SelectedConnection, connection))
+                    {
+                        return;
+                    }
+
                     HasError = true;
                     StatusText = $"{ex.GetType().Name}: {ex.Message}";
                 });
@@ -351,20 +377,20 @@ public sealed partial class MainViewModel : ViewModelBase
         HasStatusSegments = true;
     }
 
-    private static StatusSegment QueryCountSegment(QueryResult r)
+    private static StatusSegment QueryCountSegment(QueryResult result)
     {
-        if (r.QueryCount == 0)
+        if (result.QueryCount == 0)
         {
             return new StatusSegment("using", "no query (client-side)");
         }
 
-        if (r.QueryCount > 1 && !r.IsSplitQuery)
+        if (result.QueryCount > 1 && !result.IsSplitQuery)
         {
-            return new StatusSegment("using", $"{r.QueryCount} queries — possible N+1", IsWarning: true);
+            return new StatusSegment("using", $"{result.QueryCount} queries — possible N+1", IsWarning: true);
         }
 
-        return r.IsSplitQuery
-            ? new StatusSegment("using", $"{r.QueryCount} queries (split)")
+        return result.IsSplitQuery
+            ? new StatusSegment("using", $"{result.QueryCount} queries (split)")
             : new StatusSegment("using", "1 query");
     }
 
@@ -375,17 +401,25 @@ public sealed partial class MainViewModel : ViewModelBase
             return "(no rows)";
         }
 
-        int[] widths = r.Columns.Select((c, i) => Math.Max(c.Length, r.Rows.Max(row => i < row.Length ? row[i].Length : 0)))
+        int numWidth = Math.Max(1, r.Rows.Count.ToString().Length);
+
+        int[] colWidths = r.Columns.Select((c, i) => Math.Max(c.Length, r.Rows.Max(row => i < row.Length ? row[i].Length : 0)))
             .ToArray();
+
+        int[] widths = new int[colWidths.Length + 1];
+        widths[0] = numWidth;
+        Array.Copy(colWidths, 0, widths, 1, colWidths.Length);
 
         StringBuilder sb = new();
 
-        Line(sb, widths, r.Columns);
+        Line(sb, widths, r.Columns.Prepend("#").ToArray());
         sb.AppendLine(string.Join("  ", widths.Select(w => new string('─', w))));
 
+        int rowNum = 1;
         foreach (string[] row in r.Rows)
         {
-            Line(sb, widths, row);
+            Line(sb, widths, row.Prepend(rowNum.ToString()).ToArray());
+            rowNum++;
         }
 
         if (r.RowCount > r.Rows.Count)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -68,6 +69,33 @@ public sealed class QueryRunnerTests
 
         Assert.Same(expectedModel, await runner.GetModelAsync());
         Assert.Equal(2, initializationCount);
+    }
+
+    [Fact]
+    public async Task GetCompletionsInitializesModelOffUiHandlerThread()
+    {
+        int uiHandlerThreadId = 0;
+        int compilerThreadId = 0;
+        QueryRunner runner = new(
+            () => Task.FromResult(new DatabaseModel()),
+            (model, references) =>
+            {
+                compilerThreadId = Environment.CurrentManagedThreadId;
+                return ModelCompiler.Compile(model, references);
+            });
+        Task<IReadOnlyList<CompletionSuggestion>>? completions = null;
+
+        Thread uiHandler = new(() =>
+        {
+            uiHandlerThreadId = Environment.CurrentManagedThreadId;
+            completions = runner.GetCompletionsAsync(string.Empty, 0);
+        });
+        uiHandler.Start();
+        uiHandler.Join();
+
+        await completions!;
+
+        Assert.NotEqual(uiHandlerThreadId, compilerThreadId);
     }
 
     private static CompiledModel CreateModel() => new()
