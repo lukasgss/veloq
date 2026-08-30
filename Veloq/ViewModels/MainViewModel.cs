@@ -1,7 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Text;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -133,8 +132,9 @@ public sealed partial class MainViewModel : ViewModelBase
     public partial string SqlText { get; set; } = string.Empty;
     [ObservableProperty]
     public partial string PlanText { get; set; } = string.Empty;
+
     [ObservableProperty]
-    public partial string ResultsText { get; set; } = string.Empty;
+    public partial QueryResult? Result { get; set; }
 
     [RelayCommand]
     private void Reset() => QueryText = string.Empty;
@@ -169,13 +169,15 @@ public sealed partial class MainViewModel : ViewModelBase
                 HasError = true;
                 StatusText = result.Error ?? "Unknown error.";
                 ClearStatusSegments();
-                SqlText = PlanText = ResultsText = string.Empty;
+                SqlText = PlanText = string.Empty;
+                Result = null;
+
                 return;
             }
 
             SqlText = result.Sql;
             PlanText = result.Plan;
-            ResultsText = FormatTable(result);
+            Result = result;
 
             if (CompareTracking)
             {
@@ -289,11 +291,6 @@ public sealed partial class MainViewModel : ViewModelBase
         }
     }
 
-    private static void Line(StringBuilder sb, int[] widths, IReadOnlyCollection<string> cells)
-    {
-        sb.AppendLine(string.Join("  ", cells.Select((c, i) => c.PadRight(widths[i]))));
-    }
-
     private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 
     private static string FormatMs(double ms) => ms >= 1000 ? $"{ms / 1000.0:0.00} s" : $"{ms:0.0} ms";
@@ -394,39 +391,4 @@ public sealed partial class MainViewModel : ViewModelBase
             : new StatusSegment("using", "1 query");
     }
 
-    private static string FormatTable(QueryResult r)
-    {
-        if (r.RowCount == 0)
-        {
-            return "(no rows)";
-        }
-
-        int numWidth = Math.Max(1, r.Rows.Count.ToString().Length);
-
-        int[] colWidths = r.Columns.Select((c, i) => Math.Max(c.Length, r.Rows.Max(row => i < row.Length ? row[i].Length : 0)))
-            .ToArray();
-
-        int[] widths = new int[colWidths.Length + 1];
-        widths[0] = numWidth;
-        Array.Copy(colWidths, 0, widths, 1, colWidths.Length);
-
-        StringBuilder sb = new();
-
-        Line(sb, widths, r.Columns.Prepend("#").ToArray());
-        sb.AppendLine(string.Join("  ", widths.Select(w => new string('─', w))));
-
-        int rowNum = 1;
-        foreach (string[] row in r.Rows)
-        {
-            Line(sb, widths, row.Prepend(rowNum.ToString()).ToArray());
-            rowNum++;
-        }
-
-        if (r.RowCount > r.Rows.Count)
-        {
-            sb.AppendLine($"... {r.RowCount - r.Rows.Count} more rows");
-        }
-
-        return sb.ToString().TrimEnd();
-    }
 }
