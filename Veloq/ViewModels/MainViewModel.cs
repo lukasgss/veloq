@@ -135,6 +135,8 @@ public sealed partial class MainViewModel : ViewModelBase
     public partial string PlanText { get; set; } = string.Empty;
     [ObservableProperty]
     public partial string ResultsText { get; set; } = string.Empty;
+    [ObservableProperty]
+    public partial string RowCountText { get; set; } = string.Empty;
 
     [RelayCommand]
     private void Reset() => QueryText = string.Empty;
@@ -169,7 +171,8 @@ public sealed partial class MainViewModel : ViewModelBase
                 HasError = true;
                 StatusText = result.Error ?? "Unknown error.";
                 ClearStatusSegments();
-                SqlText = PlanText = ResultsText = string.Empty;
+                SqlText = PlanText = ResultsText = RowCountText = string.Empty;
+
                 return;
             }
 
@@ -334,7 +337,7 @@ public sealed partial class MainViewModel : ViewModelBase
         StatusSegments.Add(new StatusSegment("tracked", FormatMs(trackedMs)));
         StatusSegments.Add(new StatusSegment("no tracking", FormatMs(untrackedMs)));
         StatusSegments.Add(new StatusSegment("difference", FormatDelta(trackedMs, untrackedMs)));
-        StatusSegments.Add(new StatusSegment("returned", Plural(asWritten.RowCount, "row")));
+        RowCountText = Plural(asWritten.RowCount, "row");
         StatusSegments.Add(QueryCountSegment(asWritten));
         AddCartesianSegment(asWritten);
         HasStatusSegments = true;
@@ -356,6 +359,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void ClearStatusSegments()
     {
+        RowCountText = string.Empty;
         StatusSegments.Clear();
         HasStatusSegments = false;
     }
@@ -378,7 +382,7 @@ public sealed partial class MainViewModel : ViewModelBase
             StatusSegments.Add(new StatusSegment("took", FormatMs(result.ElapsedMs)));
         }
 
-        StatusSegments.Add(new StatusSegment("returned", Plural(result.RowCount, "row")));
+        RowCountText = Plural(result.RowCount, "row");
         StatusSegments.Add(QueryCountSegment(result));
         AddCartesianSegment(result);
         HasStatusSegments = true;
