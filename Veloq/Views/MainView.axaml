@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:Veloq.ViewModels"
+             xmlns:views="using:Veloq.Views"
              xmlns:ae="using:AvaloniaEdit"
              mc:Ignorable="d" d:DesignWidth="1300" d:DesignHeight="820"
              x:Class="Veloq.Views.MainView"
@@ -92,10 +93,9 @@
                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
                     <TabControl Padding="0">
                         <TabItem Header="Results">
-                            <ScrollViewer HorizontalScrollBarVisibility="Auto">
-                                <SelectableTextBlock Text="{Binding ResultsText}" Margin="16"
-                                                     FontFamily="Cascadia Code,Consolas,monospace"
-                                                     FontSize="13" Foreground="{StaticResource TextHiBrush}" />
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Auto">
+                                <views:ResultTable Result="{Binding Result}" Margin="16" />
                             </ScrollViewer>
                         </TabItem>
                         <TabItem Header="SQL">
