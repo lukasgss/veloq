@@ -399,7 +399,8 @@ public sealed class QueryRunner
             double coldMs = 0;
 
             CaptureInterceptor displayInterceptor = new();
-            (List<string> Columns, List<string[]> Rows, int Count) display = ([], [], 0);
+            MaterializedResult display = new([], [], DisplayRowCount: 0, RootCount: 0);
+            Type? rootType = null;
 
             for (int i = 0; i < warmup + measured; i++)
             {
@@ -412,7 +413,7 @@ public sealed class QueryRunner
                 Stopwatch sw = Stopwatch.StartNew();
 
                 object? value = await UnwrapAsync(await run(host).ConfigureAwait(false)).ConfigureAwait(false);
-                (List<string> Columns, List<string[]> Rows, int Count) materialized = ResultMaterializer.Materialize(value);
+                MaterializedResult materialized = ResultMaterializer.Materialize(value);
 
                 sw.Stop();
 
@@ -444,10 +445,13 @@ public sealed class QueryRunner
                 {
                     displayInterceptor = interceptor;
                     display = materialized;
+                    rootType = RootEntityType(value);
                 }
             }
 
-            (List<string> columns, List<string[]> rows, int count) = display;
+            int rowsFetched = displayInterceptor.Commands.Sum(command => command.RowsFetched);
+            bool isSplitQuery = QueryDiagnostics.ContainsAsSplitQuery(expression);
+            int collectionIncludes = QueryDiagnostics.CountCollectionIncludes(expression, rootType);
 
             string sql = QueryDiagnostics.FormatSql(displayInterceptor.Commands);
             string plan = displayInterceptor.Commands.Count == 0
@@ -464,18 +468,46 @@ public sealed class QueryRunner
                 Sql = sql,
                 Plan = plan,
                 QueryCount = displayInterceptor.QueryCount,
-                IsSplitQuery = QueryDiagnostics.ContainsAsSplitQuery(expression),
+                IsSplitQuery = isSplitQuery,
+                RowsFetched = rowsFetched,
+                ReturnedCount = display.RootCount,
+                CollectionIncludeCount = collectionIncludes,
+                IsCartesianRisk = QueryDiagnostics.IsCartesianRisk(collectionIncludes, isSplitQuery),
+                IsCartesian = QueryDiagnostics.IsCartesianExplosion(collectionIncludes, rowsFetched, display.RootCount, isSplitQuery),
                 ElapsedMs = (long)Math.Round(benchmark?.MedianMs ?? coldMs),
                 Benchmark = benchmark,
-                Columns = columns,
-                Rows = rows,
-                RowCount = count,
+                Columns = display.Columns,
+                Rows = display.Rows,
+                RowCount = display.DisplayRowCount,
             };
         }
         catch (Exception ex)
         {
             return QueryResult.Fail($"{ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    private static Type? RootEntityType(object? value)
+    {
+        if (value is string or null)
+        {
+            return value?.GetType();
+        }
+
+        if (value is System.Collections.IEnumerable enumerable)
+        {
+            foreach (object? item in enumerable)
+            {
+                if (item is not null)
+                {
+                    return item.GetType();
+                }
+            }
+
+            return null;
+        }
+
+        return value.GetType();
     }
 
     private static async Task<object?> UnwrapAsync(object? value)

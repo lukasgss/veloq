@@ -5,9 +5,10 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Veloq.Data;
 
-public sealed record CapturedCommand(
-    string Sql,
-    IReadOnlyList<(string Name, object? Value)> Parameters);
+public sealed record CapturedCommand(string Sql, IReadOnlyList<(string Name, object? Value)> Parameters)
+{
+    public int RowsFetched { get; internal set; }
+}
 
 public sealed class CaptureInterceptor : DbCommandInterceptor
 {
@@ -24,6 +25,17 @@ public sealed class CaptureInterceptor : DbCommandInterceptor
             .ToList();
 
         Commands.Add(new CapturedCommand(command.CommandText, parameters));
+    }
+
+    private DbDataReader WrapLatest(DbDataReader reader)
+    {
+        if (Commands.Count == 0)
+        {
+            return reader;
+        }
+
+        CapturedCommand command = Commands[^1];
+        return new CountingDbDataReader(reader, () => command.RowsFetched++);
     }
 
     public override InterceptionResult<DbDataReader> ReaderExecuting(
@@ -43,9 +55,28 @@ public sealed class CaptureInterceptor : DbCommandInterceptor
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        
+
         Capture(command);
 
         return new ValueTask<InterceptionResult<DbDataReader>>(result);
+    }
+
+    public override DbDataReader ReaderExecuted(
+        DbCommand command,
+        CommandExecutedEventData eventData,
+        DbDataReader result)
+    {
+        return WrapLatest(result);
+    }
+
+    public override ValueTask<DbDataReader> ReaderExecutedAsync(
+        DbCommand command,
+        CommandExecutedEventData eventData,
+        DbDataReader result,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return new(WrapLatest(result));
     }
 }

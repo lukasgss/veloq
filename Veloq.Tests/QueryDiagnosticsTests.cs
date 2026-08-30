@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Veloq.Data;
 using Xunit;
 
@@ -35,5 +36,109 @@ public sealed class AsNoTrackingRewriteTests
 
         Assert.Equal("db.Plan.AsSplitQuery().Where(p => p.Id > 1).ToListAsync()", stripped);
         Assert.False(QueryDiagnostics.ContainsAsNoTracking(stripped));
+    }
+}
+
+public sealed class CartesianDetectionTests
+{
+    [Theory]
+    [InlineData("db.Book.ToListAsync()", 0)]
+    [InlineData("db.Book.Include(b => b.Reviews).ToListAsync()", 1)]
+    [InlineData("db.Book.Include(b => b.Reviews).Include(b => b.Tags).ToListAsync()", 2)]
+    [InlineData("db.Book.Include(b => b.Reviews).ThenInclude(r => r.Author).ToListAsync()", 2)]
+    public void CountsIncludes(string expression, int expected)
+    {
+        Assert.Equal(expected, QueryDiagnostics.CountIncludes(expression));
+    }
+
+    private sealed class Root
+    {
+        public List<object> Reviews { get; } = [];
+        public List<object> Tags { get; } = [];
+        public object? Author { get; set; }
+    }
+
+    [Theory]
+    [InlineData("db.Book.ToListAsync()", 0)]
+    [InlineData("db.Book.Include(b => b.Reviews).ToListAsync()", 1)]
+    [InlineData("db.Book.Include(b => b.Reviews).Include(b => b.Tags).ToListAsync()", 2)]
+    [InlineData("db.Book.Include(b => b.Author).ToListAsync()", 0)] // reference nav, not a collection
+    [InlineData("db.Book.Include(b => b.Reviews).Include(b => b.Author).ToListAsync()", 1)]
+    public void CountsCollectionIncludes(string expression, int expected)
+    {
+        Assert.Equal(expected, QueryDiagnostics.CountCollectionIncludes(expression, typeof(Root)));
+    }
+
+    [Fact]
+    public void FlagsTwoCollectionIncludesWithFanOut()
+    {
+        bool cartesian = QueryDiagnostics.IsCartesianExplosion(
+            collectionIncludeCount: 2,
+            rowsFetched: 12_400,
+            rowsReturned: 200,
+            isSplitQuery: false);
+
+        Assert.True(cartesian);
+    }
+
+    [Fact]
+    public void RiskWithoutFanOutIsStillFlagged()
+    {
+        Assert.True(QueryDiagnostics.IsCartesianRisk(collectionIncludeCount: 2, isSplitQuery: false));
+        Assert.False(QueryDiagnostics.IsCartesianExplosion(
+            collectionIncludeCount: 2, rowsFetched: 20, rowsReturned: 20, isSplitQuery: false));
+    }
+
+    [Fact]
+    public void IgnoresSingleCollectionInclude()
+    {
+        Assert.False(QueryDiagnostics.IsCartesianRisk(collectionIncludeCount: 1, isSplitQuery: false));
+        Assert.False(QueryDiagnostics.IsCartesianExplosion(
+            collectionIncludeCount: 1,
+            rowsFetched: 12_400,
+            rowsReturned: 200,
+            isSplitQuery: false));
+    }
+
+    [Fact]
+    public void IgnoresSplitQuery()
+    {
+        Assert.False(QueryDiagnostics.IsCartesianRisk(collectionIncludeCount: 2, isSplitQuery: true));
+        Assert.False(QueryDiagnostics.IsCartesianExplosion(
+            collectionIncludeCount: 2,
+            rowsFetched: 12_400,
+            rowsReturned: 200,
+            isSplitQuery: true));
+    }
+
+    [Theory]
+    [InlineData(
+        "db.Book.Include(b => b.Reviews).Include(b => b.Tags).ToListAsync()",
+        "db.Book.Include(b => b.Reviews).Include(b => b.Tags).AsSplitQuery().ToListAsync()")]
+    [InlineData("db.Book", "db.Book.AsSplitQuery()")]
+    public void AddsAsSplitQueryBeforeTerminal(string expression, string expected)
+    {
+        Assert.Equal(expected, QueryDiagnostics.AddAsSplitQuery(expression));
+    }
+
+    [Fact]
+    public void AddedSplitQueryIsDetected()
+    {
+        string split = QueryDiagnostics.AddAsSplitQuery(
+            "db.Book.Include(b => b.Reviews).Include(b => b.Tags).ToListAsync()");
+
+        Assert.True(QueryDiagnostics.ContainsAsSplitQuery(split));
+    }
+
+    [Fact]
+    public void IgnoresLowFanOut()
+    {
+        bool cartesian = QueryDiagnostics.IsCartesianExplosion(
+            collectionIncludeCount: 2,
+            rowsFetched: 250,
+            rowsReturned: 200,
+            isSplitQuery: false);
+
+        Assert.False(cartesian);
     }
 }
