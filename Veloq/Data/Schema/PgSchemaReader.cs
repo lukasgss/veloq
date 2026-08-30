@@ -12,7 +12,7 @@ public static class PgSchemaReader
         Dictionary<string, TableModel> tablesByKey = [];
 
         await using NpgsqlConnection conn = new(connectionString);
-        await conn.OpenAsync();
+        await conn.OpenAsync().ConfigureAwait(false);
 
         const string columnsSql = $"""
             SELECT c.table_schema, c.table_name, c.column_name, c.udt_name, c.is_nullable
@@ -25,9 +25,9 @@ public static class PgSchemaReader
             """;
 
         await using (NpgsqlCommand cmd = new(columnsSql, conn))
-        await using (NpgsqlDataReader r = await cmd.ExecuteReaderAsync())
+        await using (NpgsqlDataReader r = await cmd.ExecuteReaderAsync().ConfigureAwait(false))
         {
-            while (await r.ReadAsync())
+            while (await r.ReadAsync().ConfigureAwait(false))
             {
                 string schema = r.GetString(0);
                 string name = r.GetString(1);
@@ -59,9 +59,9 @@ public static class PgSchemaReader
             """;
 
         await using (NpgsqlCommand cmd = new(primaryKeysSql, conn))
-        await using (NpgsqlDataReader r = await cmd.ExecuteReaderAsync())
+        await using (NpgsqlDataReader r = await cmd.ExecuteReaderAsync().ConfigureAwait(false))
         {
-            while (await r.ReadAsync())
+            while (await r.ReadAsync().ConfigureAwait(false))
             {
                 string key = $"{r.GetString(0)}.{r.GetString(1)}";
                 string col = r.GetString(2);
@@ -88,9 +88,9 @@ public static class PgSchemaReader
             """;
 
         await using (NpgsqlCommand cmd = new(foreignKeySql, conn))
-        await using (NpgsqlDataReader r = await cmd.ExecuteReaderAsync())
+        await using (NpgsqlDataReader r = await cmd.ExecuteReaderAsync().ConfigureAwait(false))
         {
-            while (await r.ReadAsync())
+            while (await r.ReadAsync().ConfigureAwait(false))
             {
                 if (IsCompositeForeignKey(r))
                 {

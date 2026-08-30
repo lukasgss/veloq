@@ -8,6 +8,7 @@
         x:Class="Veloq.Views.MainWindow"
         Icon="/Assets/avalonia-logo.ico"
         Width="1300" Height="820" MinWidth="900" MinHeight="600"
+        TransparencyLevelHint="None"
         Background="#0a0e14"
         Title="Veloq — LINQ Playground">
         <views:MainView />

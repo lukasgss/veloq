@@ -11,11 +11,22 @@ namespace Veloq.ViewModels;
 
 public sealed partial class MainViewModel : ViewModelBase
 {
+    private readonly Func<string, QueryRunner> _createRunner;
+    private readonly Action<IEnumerable<ConnectionInfo>> _saveConnections;
     private readonly Func<ConnectionInfo, Task> _prefetchConnection;
     private readonly Func<Action, Task> _dispatchToUi;
 
     public MainViewModel()
-        : this(ConnectionStore.Load, connection => connection.Runner.GetModelAsync())
+        : this(ConnectionStore.Load, connectionString => new QueryRunner(connectionString), ConnectionStore.Save)
+    {
+    }
+
+    internal MainViewModel(
+        Func<IReadOnlyList<ConnectionInfo>> loadConnections,
+        Func<string, QueryRunner> createRunner,
+        Action<IEnumerable<ConnectionInfo>> saveConnections,
+        Func<Action, Task>? dispatchToUi = null)
+        : this(loadConnections, createRunner, saveConnections, connection => connection.Runner.GetModelAsync(), dispatchToUi)
     {
     }
 
@@ -23,7 +34,19 @@ public sealed partial class MainViewModel : ViewModelBase
         Func<IReadOnlyList<ConnectionInfo>> loadConnections,
         Func<ConnectionInfo, Task> prefetchConnection,
         Func<Action, Task>? dispatchToUi = null)
+        : this(loadConnections, connectionString => new QueryRunner(connectionString), _ => { }, prefetchConnection, dispatchToUi)
     {
+    }
+
+    private MainViewModel(
+        Func<IReadOnlyList<ConnectionInfo>> loadConnections,
+        Func<string, QueryRunner> createRunner,
+        Action<IEnumerable<ConnectionInfo>> saveConnections,
+        Func<ConnectionInfo, Task> prefetchConnection,
+        Func<Action, Task>? dispatchToUi)
+    {
+        _createRunner = createRunner;
+        _saveConnections = saveConnections;
         _prefetchConnection = prefetchConnection;
         _dispatchToUi = dispatchToUi ?? DispatchToUiAsync;
 
@@ -87,10 +110,8 @@ public sealed partial class MainViewModel : ViewModelBase
         });
     }
 
-    private static async Task DispatchToUiAsync(Action action)
-    {
+    private static async Task DispatchToUiAsync(Action action) =>
         await Dispatcher.UIThread.InvokeAsync(action);
-    }
 
     [ObservableProperty]
     public partial string QueryText { get; set; } = string.Empty;
@@ -234,11 +255,11 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             string cs = ConnectionInfo.BuildConnectionString(
                 NewHost, NewPort, NewDatabase, NewUsername, NewPassword);
-            QueryRunner runner = new(cs);
+            QueryRunner runner = _createRunner(cs);
             string version = await runner.TestConnectionAsync();
 
             ConnectionStatus = "Reading database schema…";
-            await runner.GetModelAsync();
+            await Task.Run(() => runner.GetModelAsync());
 
             ConnectionInfo conn = new()
             {
@@ -251,7 +272,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 Runner = runner,
             };
 
-            ConnectionStore.Save(Connections.Append(conn));
+            _saveConnections(Connections.Append(conn));
             Connections.Add(conn);
             SelectedConnection = conn;
             IsAddingConnection = false;
@@ -268,7 +289,7 @@ public sealed partial class MainViewModel : ViewModelBase
         }
     }
 
-    private static void Line(StringBuilder sb, IReadOnlyList<int> widths, IReadOnlyCollection<string> cells)
+    private static void Line(StringBuilder sb, int[] widths, IReadOnlyCollection<string> cells)
     {
         sb.AppendLine(string.Join("  ", cells.Select((c, i) => c.PadRight(widths[i]))));
     }
