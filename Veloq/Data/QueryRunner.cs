@@ -19,6 +19,7 @@ public sealed class QueryRunner
     private readonly List<MetadataReference> _references;
     private readonly Func<Task<InitializedState>> _initializeState;
     private readonly Func<Task<string>> _testConnection;
+    private readonly Action? _onBuildScriptOptions;
 
     private readonly SemaphoreSlim _modelLock = new(1, 1);
     private volatile InitializedState? _initializedState;
@@ -65,7 +66,7 @@ public sealed class QueryRunner
         _references = [];
         _initializeState = async () =>
         {
-            (CompiledModel model, ScriptOptions scriptOptions) = await initializeState();
+            (CompiledModel model, ScriptOptions scriptOptions) = await initializeState().ConfigureAwait(false);
             return new InitializedState(model, scriptOptions);
         };
         _testConnection = testConnection ?? (() => Task.FromResult(string.Empty));
@@ -74,8 +75,9 @@ public sealed class QueryRunner
     internal QueryRunner(
         string connectionString,
         Func<Task<DatabaseModel>> readModel,
-        Func<DatabaseModel, IReadOnlyList<MetadataReference>, CompiledModel> compileModel)
-        : this(connectionString, readModel, compileModel, () => Task.FromResult(string.Empty))
+        Func<DatabaseModel, IReadOnlyList<MetadataReference>, CompiledModel> compileModel,
+        Action? onBuildScriptOptions = null)
+        : this(connectionString, readModel, compileModel, () => Task.FromResult(string.Empty), onBuildScriptOptions)
     {
     }
 
@@ -83,12 +85,14 @@ public sealed class QueryRunner
         string connectionString,
         Func<Task<DatabaseModel>> readModel,
         Func<DatabaseModel, IReadOnlyList<MetadataReference>, CompiledModel> compileModel,
-        Func<Task<string>> testConnection)
+        Func<Task<string>> testConnection,
+        Action? onBuildScriptOptions = null)
     {
         _connectionString = connectionString;
         _references = BuildReferences();
         _initializeState = () => BuildInitializedStateAsync(readModel, compileModel);
         _testConnection = testConnection;
+        _onBuildScriptOptions = onBuildScriptOptions;
     }
 
     private static List<MetadataReference> BuildReferences()
@@ -114,7 +118,7 @@ public sealed class QueryRunner
 
     public async Task<CompiledModel> GetModelAsync()
     {
-        InitializedState initializedState = await GetInitializedStateAsync();
+        InitializedState initializedState = await GetInitializedStateAsync().ConfigureAwait(false);
 
         return initializedState.Model;
     }
@@ -126,7 +130,7 @@ public sealed class QueryRunner
             return initializedState;
         }
 
-        await _modelLock.WaitAsync();
+        await _modelLock.WaitAsync().ConfigureAwait(false);
         try
         {
             if (_initializedState is { } lockedInitializedState)
@@ -134,7 +138,7 @@ public sealed class QueryRunner
                 return lockedInitializedState;
             }
 
-            InitializedState newState = await _initializeState();
+            InitializedState newState = await _initializeState().ConfigureAwait(false);
             return _initializedState = newState;
         }
         finally
@@ -147,12 +151,15 @@ public sealed class QueryRunner
         Func<Task<DatabaseModel>> readModel,
         Func<DatabaseModel, IReadOnlyList<MetadataReference>, CompiledModel> compileModel)
     {
-        DatabaseModel db = await readModel();
+        DatabaseModel db = await readModel().ConfigureAwait(false);
         List<MetadataReference> references = [.. _references];
-        CompiledModel model = await Task.Run(() => compileModel(db, references));
-        ScriptOptions scriptOptions = BuildScriptOptions(model);
 
-        return new InitializedState(model, scriptOptions);
+        return await Task.Run(() =>
+        {
+            CompiledModel model = compileModel(db, references);
+            ScriptOptions scriptOptions = BuildScriptOptions(model);
+            return new InitializedState(model, scriptOptions);
+        }).ConfigureAwait(false);
     }
 
     private DbContext CreateContext(CompiledModel model, CaptureInterceptor interceptor, bool noTracking)
@@ -177,6 +184,7 @@ public sealed class QueryRunner
 
     private ScriptOptions BuildScriptOptions(CompiledModel model)
     {
+        _onBuildScriptOptions?.Invoke();
         List<MetadataReference> refs = new(_references)
         {
             MetadataReference.CreateFromImage(model.Image),
@@ -189,12 +197,12 @@ public sealed class QueryRunner
 
     public async Task<IReadOnlyList<CompletionSuggestion>> GetCompletionsAsync(string expression, int position)
     {
-        InitializedState initializedState = await GetInitializedStateAsync();
+        InitializedState initializedState = await GetInitializedStateAsync().ConfigureAwait(false);
         CompiledModel model = initializedState.Model;
         ScriptOptions scriptOptions = GetScriptOptions();
         position = Math.Clamp(position, 0, expression.Length);
 
-        return await ComputeCompletionsOffUiThread(expression, position, model, scriptOptions);
+        return await ComputeCompletionsOffUiThread(expression, position, model, scriptOptions).ConfigureAwait(false);
     }
 
     private static async Task<IReadOnlyList<CompletionSuggestion>> ComputeCompletionsOffUiThread(
@@ -203,7 +211,7 @@ public sealed class QueryRunner
         CompiledModel model,
         ScriptOptions scriptOptions)
     {
-        return await Task.Run(() => ComputeCompletions(expression, position, model, scriptOptions));
+        return await Task.Run(() => ComputeCompletions(expression, position, model, scriptOptions)).ConfigureAwait(false);
     }
 
     private static IReadOnlyList<CompletionSuggestion> ComputeCompletions(
@@ -348,7 +356,7 @@ public sealed class QueryRunner
     private static async Task<string> TestDatabaseConnectionAsync(string connectionString)
     {
         await using NpgsqlConnection conn = new(connectionString);
-        await conn.OpenAsync();
+        await conn.OpenAsync().ConfigureAwait(false);
         return conn.PostgreSqlVersion.ToString();
     }
 
@@ -361,20 +369,23 @@ public sealed class QueryRunner
 
         try
         {
-            InitializedState initializedState = await GetInitializedStateAsync();
+            InitializedState initializedState = await GetInitializedStateAsync().ConfigureAwait(false);
             CompiledModel model = initializedState.Model;
 
             // Compile once; invoke the delegate per iteration so we measure execution,
-            // not Roslyn compilation, on every run.
-            Script<object> script = CSharpScript.Create<object>(
-                StripTrailingSemicolons(expression),
-                GetScriptOptions(),
-                model.HostType);
-
+            // not Roslyn compilation, on every run. Roslyn compilation is CPU-bound and
+            // must stay off the UI thread, so build the delegate on the thread pool.
             ScriptRunner<object> run;
             try
             {
-                run = script.CreateDelegate();
+                run = await Task.Run(() =>
+                {
+                    Script<object> script = CSharpScript.Create<object>(
+                        StripTrailingSemicolons(expression),
+                        GetScriptOptions(),
+                        model.HostType);
+                    return script.CreateDelegate();
+                }).ConfigureAwait(false);
             }
             catch (CompilationErrorException ex)
             {
@@ -400,7 +411,7 @@ public sealed class QueryRunner
 
                 Stopwatch sw = Stopwatch.StartNew();
 
-                object? value = await UnwrapAsync(await run(host));
+                object? value = await UnwrapAsync(await run(host).ConfigureAwait(false)).ConfigureAwait(false);
                 (List<string> Columns, List<string[]> Rows, int Count) materialized = ResultMaterializer.Materialize(value);
 
                 sw.Stop();
@@ -441,7 +452,7 @@ public sealed class QueryRunner
             string sql = QueryDiagnostics.FormatSql(displayInterceptor.Commands);
             string plan = displayInterceptor.Commands.Count == 0
                 ? "(no server-side query to explain)"
-                : await ExplainAsync(displayInterceptor.Commands);
+                : await ExplainAsync(displayInterceptor.Commands).ConfigureAwait(false);
 
             BenchmarkResult? benchmark = warmup + measured > 1
                 ? BenchmarkResult.From(coldMs, timings, warmup)
@@ -503,7 +514,7 @@ public sealed class QueryRunner
         try
         {
             await using NpgsqlConnection conn = new(_connectionString);
-            await conn.OpenAsync();
+            await conn.OpenAsync().ConfigureAwait(false);
 
             StringBuilder output = new();
             for (int index = 0; index < commands.Count; index++)
@@ -528,8 +539,8 @@ public sealed class QueryRunner
                     output.AppendLine(new string('─', 24));
                 }
 
-                await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
+                await using NpgsqlDataReader reader = await command.ExecuteReaderAsync().ConfigureAwait(false);
+                while (await reader.ReadAsync().ConfigureAwait(false))
                 {
                     output.AppendLine(reader.GetString(0));
                 }

@@ -76,6 +76,7 @@ public sealed class QueryRunnerTests
     {
         int uiHandlerThreadId = 0;
         int compilerThreadId = 0;
+        int scriptOptionsThreadId = 0;
         QueryRunner runner = new(
             "Host=unused",
             () => Task.FromResult(new DatabaseModel()),
@@ -83,7 +84,8 @@ public sealed class QueryRunnerTests
             {
                 compilerThreadId = Environment.CurrentManagedThreadId;
                 return ModelCompiler.Compile(model, references);
-            });
+            },
+            () => scriptOptionsThreadId = Environment.CurrentManagedThreadId);
         Task<IReadOnlyList<CompletionSuggestion>>? completions = null;
 
         Thread uiHandler = new(() =>
@@ -97,6 +99,7 @@ public sealed class QueryRunnerTests
         await completions!;
 
         Assert.NotEqual(uiHandlerThreadId, compilerThreadId);
+        Assert.NotEqual(uiHandlerThreadId, scriptOptionsThreadId);
     }
 
     private static CompiledModel CreateModel() => new()
