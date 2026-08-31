@@ -445,7 +445,7 @@ public sealed class QueryRunner
                 {
                     displayInterceptor = interceptor;
                     display = materialized;
-                    rootType = RootEntityType(value);
+                    rootType = materialized.RootType ?? (value as IQueryable)?.ElementType;
                 }
             }
 
@@ -485,29 +485,6 @@ public sealed class QueryRunner
         {
             return QueryResult.Fail($"{ex.GetType().Name}: {ex.Message}");
         }
-    }
-
-    private static Type? RootEntityType(object? value)
-    {
-        if (value is string or null)
-        {
-            return value?.GetType();
-        }
-
-        if (value is System.Collections.IEnumerable enumerable)
-        {
-            foreach (object? item in enumerable)
-            {
-                if (item is not null)
-                {
-                    return item.GetType();
-                }
-            }
-
-            return null;
-        }
-
-        return value.GetType();
     }
 
     private static async Task<object?> UnwrapAsync(object? value)

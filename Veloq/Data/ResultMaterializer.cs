@@ -9,7 +9,8 @@ internal sealed record MaterializedResult(
     List<string> Columns,
     List<string[]> Rows,
     int DisplayRowCount,
-    int RootCount);
+    int RootCount,
+    Type? RootType = null);
 
 internal static class ResultMaterializer
 {
@@ -21,7 +22,7 @@ internal static class ResultMaterializer
     {
         if (value is null || IsScalarValue(value.GetType()))
         {
-            return new MaterializedResult(["Value"], [[Format(value)]], DisplayRowCount: 1, RootCount: 1);
+            return new MaterializedResult(["Value"], [[Format(value)]], DisplayRowCount: 1, RootCount: 1, RootType: value?.GetType());
         }
 
         List<object?> items = value is IEnumerable enumerable
@@ -48,7 +49,8 @@ internal static class ResultMaterializer
                 ["Value"],
                 items.Take(MaxDisplayRows).Select(item => new[] { Format(item) }).ToList(),
                 DisplayRowCount: total,
-                RootCount: total);
+                RootCount: total,
+                RootType: elementType);
         }
 
         List<DisplayColumn> displayColumns = BuildDisplayColumns(properties, items);
@@ -87,7 +89,7 @@ internal static class ResultMaterializer
             }
         }
 
-        return new MaterializedResult(columns, rows, DisplayRowCount: expandedTotal, RootCount: total);
+        return new MaterializedResult(columns, rows, DisplayRowCount: expandedTotal, RootCount: total, RootType: elementType);
     }
 
     private static bool IsScalarValue(Type type) =>
