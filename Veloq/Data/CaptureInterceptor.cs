@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data.Common;
 using System.Linq;
@@ -12,10 +13,18 @@ public sealed record CapturedCommand(string Sql, IReadOnlyList<(string Name, obj
 
 public sealed class CaptureInterceptor : DbCommandInterceptor
 {
-    public List<CapturedCommand> Commands { get; } = [];
-    public int QueryCount => Commands.Count;
+    private readonly ConcurrentQueue<CapturedCommand> _commands = new();
+    private readonly ConcurrentDictionary<DbCommand, CapturedCommand> _byCommand = new();
 
-    public void Reset() => Commands.Clear();
+    public IReadOnlyList<CapturedCommand> Commands => _commands.ToList();
+
+    public int QueryCount => _commands.Count;
+
+    public void Reset()
+    {
+        _commands.Clear();
+        _byCommand.Clear();
+    }
 
     internal void Capture(DbCommand command)
     {
@@ -24,18 +33,20 @@ public sealed class CaptureInterceptor : DbCommandInterceptor
             .Select(parameter => (parameter.ParameterName, parameter.Value))
             .ToList();
 
-        Commands.Add(new CapturedCommand(command.CommandText, parameters));
+        CapturedCommand captured = new(command.CommandText, parameters);
+
+        _commands.Enqueue(captured);
+        _byCommand[command] = captured;
     }
 
-    private DbDataReader WrapLatest(DbDataReader reader)
+    private DbDataReader Wrap(DbCommand command, DbDataReader reader)
     {
-        if (Commands.Count == 0)
+        if (!_byCommand.TryRemove(command, out CapturedCommand? captured))
         {
             return reader;
         }
 
-        CapturedCommand command = Commands[^1];
-        return new CountingDbDataReader(reader, () => command.RowsFetched++);
+        return new CountingDbDataReader(reader, () => captured.RowsFetched++);
     }
 
     public override InterceptionResult<DbDataReader> ReaderExecuting(
@@ -66,7 +77,7 @@ public sealed class CaptureInterceptor : DbCommandInterceptor
         CommandExecutedEventData eventData,
         DbDataReader result)
     {
-        return WrapLatest(result);
+        return Wrap(command, result);
     }
 
     public override ValueTask<DbDataReader> ReaderExecutedAsync(
@@ -77,6 +88,6 @@ public sealed class CaptureInterceptor : DbCommandInterceptor
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        return new(WrapLatest(result));
+        return new(Wrap(command, result));
     }
 }
