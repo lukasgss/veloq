@@ -11,7 +11,10 @@ public sealed class ResultMaterializerTests
     {
         var plan = new ScalarPlan { Id = 1, Name = "Basic" };
 
-        var (columns, rows, count) = ResultMaterializer.Materialize(plan);
+        var result = ResultMaterializer.Materialize(plan);
+        var columns = result.Columns;
+        var rows = result.Rows;
+        var count = result.DisplayRowCount;
 
         Assert.Equal(["Id", "Name"], columns);
         Assert.Single(rows);
@@ -22,7 +25,10 @@ public sealed class ResultMaterializerTests
     [Fact]
     public void ScalarPrimitiveKeepsValueColumn()
     {
-        var (columns, rows, count) = ResultMaterializer.Materialize(42);
+        var result = ResultMaterializer.Materialize(42);
+        var columns = result.Columns;
+        var rows = result.Rows;
+        var count = result.DisplayRowCount;
 
         Assert.Equal(["Value"], columns);
         Assert.Single(rows);
@@ -38,7 +44,10 @@ public sealed class ResultMaterializerTests
         plan.TimelineItems.Add(new Timeline { Id = 11, CustomUrl = "vasco-clara", PlanId = 1, Plan = plan });
         Plan premium = new() { Id = 2, Name = "Premium" };
 
-        var (columns, rows, count) = ResultMaterializer.Materialize(new[] { plan, premium });
+        var result = ResultMaterializer.Materialize(new[] { plan, premium });
+        var columns = result.Columns;
+        var rows = result.Rows;
+        var count = result.DisplayRowCount;
 
         Assert.DoesNotContain("TimelineItems", columns);
         Assert.Contains("TimelineItems.Id", columns);
@@ -63,7 +72,9 @@ public sealed class ResultMaterializerTests
         plan.TimelineItems.Add(current);
         plan.TimelineItems.Add(new Timeline { Id = 11, PlanId = 1, Plan = plan });
 
-        var (columns, rows, _) = ResultMaterializer.Materialize(current);
+        var result = ResultMaterializer.Materialize(current);
+        var columns = result.Columns;
+        var rows = result.Rows;
 
         Assert.DoesNotContain("Plan", columns);
         Assert.DoesNotContain("MemoryItems", columns);

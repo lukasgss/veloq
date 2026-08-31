@@ -134,6 +134,8 @@ public sealed partial class MainViewModel : ViewModelBase
     public partial string PlanText { get; set; } = string.Empty;
 
     [ObservableProperty]
+    public partial string RowCountText { get; set; } = string.Empty;
+    [ObservableProperty]
     public partial QueryResult? Result { get; set; }
 
     [RelayCommand]
@@ -169,7 +171,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 HasError = true;
                 StatusText = result.Error ?? "Unknown error.";
                 ClearStatusSegments();
-                SqlText = PlanText = string.Empty;
+                SqlText = PlanText = RowCountText = string.Empty;
                 Result = null;
 
                 return;
@@ -186,6 +188,11 @@ public sealed partial class MainViewModel : ViewModelBase
             else
             {
                 ShowStatusSegments(result);
+
+                if (result.IsCartesian)
+                {
+                    await ShowSplitQueryDeltaAsync(SelectedConnection.Runner, result);
+                }
             }
         }
         catch (Exception ex)
@@ -326,8 +333,9 @@ public sealed partial class MainViewModel : ViewModelBase
         StatusSegments.Add(new StatusSegment("tracked", FormatMs(trackedMs)));
         StatusSegments.Add(new StatusSegment("no tracking", FormatMs(untrackedMs)));
         StatusSegments.Add(new StatusSegment("difference", FormatDelta(trackedMs, untrackedMs)));
-        StatusSegments.Add(new StatusSegment("returned", Plural(asWritten.RowCount, "row")));
+        RowCountText = Plural(asWritten.RowCount, "row");
         StatusSegments.Add(QueryCountSegment(asWritten));
+        AddCartesianSegment(asWritten);
         HasStatusSegments = true;
     }
 
@@ -347,31 +355,74 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void ClearStatusSegments()
     {
+        RowCountText = string.Empty;
         StatusSegments.Clear();
         HasStatusSegments = false;
     }
 
-    private void ShowStatusSegments(QueryResult r)
+    private void ShowStatusSegments(QueryResult result)
     {
         StatusSegments.Clear();
         StatusText = string.Empty;
 
-        if (r.Benchmark is { } b)
+        if (result.Benchmark is { } benchmark)
         {
-            StatusSegments.Add(new StatusSegment("median", FormatMs(b.MedianMs)));
-            StatusSegments.Add(new StatusSegment("p95", FormatMs(b.P95Ms)));
-            StatusSegments.Add(new StatusSegment("range", $"{b.MinMs:0.0}–{FormatMs(b.MaxMs)}"));
-            StatusSegments.Add(new StatusSegment("first run", FormatMs(b.ColdMs)));
-            StatusSegments.Add(new StatusSegment("measured over", Plural(b.MeasuredCount, "run")));
+            StatusSegments.Add(new StatusSegment("median", FormatMs(benchmark.MedianMs)));
+            StatusSegments.Add(new StatusSegment("p95", FormatMs(benchmark.P95Ms)));
+            StatusSegments.Add(new StatusSegment("range", $"{benchmark.MinMs:0.0}–{FormatMs(benchmark.MaxMs)}"));
+            StatusSegments.Add(new StatusSegment("first run", FormatMs(benchmark.ColdMs)));
+            StatusSegments.Add(new StatusSegment("measured over", Plural(benchmark.MeasuredCount, "run")));
         }
         else
         {
-            StatusSegments.Add(new StatusSegment("took", FormatMs(r.ElapsedMs)));
+            StatusSegments.Add(new StatusSegment("took", FormatMs(result.ElapsedMs)));
         }
 
-        StatusSegments.Add(new StatusSegment("returned", Plural(r.RowCount, "row")));
-        StatusSegments.Add(QueryCountSegment(r));
+        RowCountText = Plural(result.RowCount, "row");
+        StatusSegments.Add(QueryCountSegment(result));
+        AddCartesianSegment(result);
         HasStatusSegments = true;
+    }
+
+    private async Task ShowSplitQueryDeltaAsync(QueryRunner runner, QueryResult cartesian)
+    {
+        BenchmarkOptions matched = BenchmarkOptions.Default with
+        {
+            MeasuredCount = cartesian.Benchmark?.MeasuredCount ?? BenchmarkOptions.Default.MeasuredCount,
+            Adaptive = false,
+        };
+
+        QueryResult split = await runner.RunAsync(
+            QueryDiagnostics.AddAsSplitQuery(QueryText), matched);
+
+        if (!split.Success)
+        {
+            return;
+        }
+
+        double before = MedianOf(cartesian);
+        double after = MedianOf(split);
+
+        StatusSegments.Add(new StatusSegment("with .AsSplitQuery()", FormatMs(after)));
+        StatusSegments.Add(new StatusSegment(
+            "fan-out fixed",
+            $"{split.RowsFetched:N0} rows fetched (was {cartesian.RowsFetched:N0}), {FormatDelta(before, after)} time"));
+    }
+
+    private void AddCartesianSegment(QueryResult r)
+    {
+        // Only surface once a cartesian explosion is actually happening: two+ collection
+        // includes AND the reader measurably fanned out on this run's data.
+        if (!r.IsCartesian)
+        {
+            return;
+        }
+
+        double factor = (double)r.RowsFetched / r.ReturnedCount;
+        StatusSegments.Add(new StatusSegment(
+            "cartesian explosion",
+            $"fetched {r.RowsFetched:N0} rows to return {r.ReturnedCount:N0} ({factor:0.#}\u00d7) — try .AsSplitQuery()",
+            IsWarning: true));
     }
 
     private static StatusSegment QueryCountSegment(QueryResult result)

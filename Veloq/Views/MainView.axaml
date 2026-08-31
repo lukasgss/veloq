@@ -93,10 +93,17 @@
                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
                     <TabControl Padding="0">
                         <TabItem Header="Results">
-                            <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                                          VerticalScrollBarVisibility="Auto">
-                                <views:ResultTable Result="{Binding Result}" Margin="16" />
-                            </ScrollViewer>
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Top" Margin="16,10,16,0"
+                                           Text="{Binding RowCountText}"
+                                           IsVisible="{Binding RowCountText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           FontFamily="Cascadia Code,Consolas,monospace"
+                                           FontSize="12" Foreground="{StaticResource TextLoBrush}" />
+                                <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                              VerticalScrollBarVisibility="Auto">
+                                    <views:ResultTable Result="{Binding Result}" Margin="16" />
+                                </ScrollViewer>
+                            </DockPanel>
                         </TabItem>
                         <TabItem Header="SQL">
                             <ScrollViewer HorizontalScrollBarVisibility="Auto">
@@ -131,17 +138,18 @@
                                       IsVisible="{Binding HasStatusSegments}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" Spacing="18" />
+                                    <WrapPanel Orientation="Horizontal" />
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:StatusSegment">
-                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,2,18,2">
                                         <TextBlock Text="{Binding Label}" IsVisible="{Binding HasLabel}"
                                                    VerticalAlignment="Center"
                                                    FontFamily="Cascadia Code,Consolas,monospace" FontSize="11"
                                                    Foreground="{StaticResource TextLoBrush}" />
                                         <TextBlock Text="{Binding Value}" VerticalAlignment="Center"
+                                                   TextWrapping="Wrap"
                                                    FontFamily="Cascadia Code,Consolas,monospace" FontSize="12"
                                                    Foreground="{Binding IsWarning, Converter={x:Static vm:BoolBrush.AmberOrHi}}" />
                                     </StackPanel>

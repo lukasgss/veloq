@@ -1,10 +1,16 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 
 namespace Veloq.Data;
+
+internal sealed record MaterializedResult(
+    List<string> Columns,
+    List<string[]> Rows,
+    int DisplayRowCount,
+    int RootCount,
+    Type? RootType = null);
 
 internal static class ResultMaterializer
 {
@@ -12,11 +18,11 @@ internal static class ResultMaterializer
     private const int MaxNavigationDepth = 3;
     private const int MaxCollectionItems = 20;
 
-    public static (List<string> Columns, List<string[]> Rows, int Count) Materialize(object? value)
+    public static MaterializedResult Materialize(object? value)
     {
         if (value is null || IsScalarValue(value.GetType()))
         {
-            return (["Value"], [[Format(value)]], 1);
+            return new MaterializedResult(["Value"], [[Format(value)]], DisplayRowCount: 1, RootCount: 1, RootType: value?.GetType());
         }
 
         List<object?> items = value is IEnumerable enumerable
@@ -26,20 +32,25 @@ internal static class ResultMaterializer
         int total = items.Count;
         if (total == 0)
         {
-            return ([], [], 0);
+            return new MaterializedResult([], [], DisplayRowCount: 0, RootCount: 0);
         }
 
         Type? elementType = items.First(item => item is not null)?.GetType();
-        PropertyInfo[]? properties = elementType is null || IsScalarValue(elementType)
-            ? null
+        PropertyInfo[] properties = elementType is null || IsScalarValue(elementType)
+            ? []
             : elementType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Where(property => property.GetIndexParameters().Length == 0 &&
-                                   ShouldDisplayTopLevelProperty(property, items))
+                .Where(property => property.GetIndexParameters().Length == 0)
+                .Where(property => ShouldDisplayTopLevelProperty(property, items))
                 .ToArray();
 
-        if (properties is null)
+        if (properties.Length == 0)
         {
-            return (["Value"], items.Take(MaxDisplayRows).Select(item => new[] { Format(item) }).ToList(), total);
+            return new MaterializedResult(
+                ["Value"],
+                items.Take(MaxDisplayRows).Select(item => new[] { Format(item) }).ToList(),
+                DisplayRowCount: total,
+                RootCount: total,
+                RootType: elementType);
         }
 
         List<DisplayColumn> displayColumns = BuildDisplayColumns(properties, items);
@@ -78,7 +89,7 @@ internal static class ResultMaterializer
             }
         }
 
-        return (columns, rows, expandedTotal);
+        return new MaterializedResult(columns, rows, DisplayRowCount: expandedTotal, RootCount: total, RootType: elementType);
     }
 
     private static bool IsScalarValue(Type type) =>
@@ -201,6 +212,7 @@ internal static class ResultMaterializer
                     .Where(itemProperty => itemProperty.GetIndexParameters().Length == 0 &&
                                            IsScalarProperty(itemProperty.PropertyType))
                     .ToArray();
+
                 columns.AddRange(itemProperties.Select(itemProperty =>
                     new DisplayColumn(
                         $"{property.Name}.{itemProperty.Name}",
@@ -218,8 +230,8 @@ internal static class ResultMaterializer
 
             PropertyInfo[] scalarProperties = reference.GetType()
                 .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Where(nested => nested.GetIndexParameters().Length == 0 &&
-                                 IsScalarProperty(nested.PropertyType))
+                .Where(nested => nested.GetIndexParameters().Length == 0)
+                .Where(nested => IsScalarProperty(nested.PropertyType))
                 .ToArray();
 
             columns.AddRange(scalarProperties.Select(nested =>
@@ -287,9 +299,11 @@ internal static class ResultMaterializer
         int limit)
     {
         List<Dictionary<PropertyInfo, object?>> contexts = [new()];
+
         foreach (CollectionExpansion expansion in expansions)
         {
             List<Dictionary<PropertyInfo, object?>> next = [];
+
             foreach (Dictionary<PropertyInfo, object?> context in contexts)
             {
                 foreach (object? collectionItem in expansion.Items)
@@ -298,6 +312,7 @@ internal static class ResultMaterializer
                     {
                         [expansion.Property] = collectionItem,
                     };
+
                     next.Add(expanded);
                     if (next.Count == limit)
                     {
@@ -325,9 +340,7 @@ internal static class ResultMaterializer
         PropertyInfo? NestedProperty,
         bool IsCollection)
     {
-        public object? GetValue(
-            object? item,
-            IReadOnlyDictionary<PropertyInfo, object?> expandedCollections)
+        public object? GetValue(object? item, IReadOnlyDictionary<PropertyInfo, object?> expandedCollections)
         {
             if (item is null)
             {
