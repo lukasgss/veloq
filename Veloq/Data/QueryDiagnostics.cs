@@ -53,27 +53,107 @@ internal static class QueryDiagnostics
             {
                 Name.Identifier.ValueText: "Include"
             })
-            .Select(invocation => IncludedMemberName(invocation))
-            .Where(name => name is not null)
-            .Select(name => rootType.GetProperty(name!, BindingFlags.Public | BindingFlags.Instance))
-            .Count(property => property is not null && IsCollectionType(property.PropertyType));
+            .Select(IncludedMemberPath)
+            .Where(path => path is { Count: > 0 })
+            .Count(path => PathTraversesCollection(rootType, path!));
     }
 
-    private static string? IncludedMemberName(InvocationExpressionSyntax invocation)
+    private static readonly HashSet<string> FilterMethods =
+    [
+        "Where", "OrderBy", "OrderByDescending", "ThenBy", "ThenByDescending",
+        "Skip", "Take", "Select", "Distinct", "AsQueryable",
+    ];
+
+    private static IReadOnlyList<string>? IncludedMemberPath(InvocationExpressionSyntax invocation)
     {
         if (invocation.ArgumentList.Arguments.Count != 1)
         {
             return null;
         }
 
-        ExpressionSyntax body = invocation.ArgumentList.Arguments[0].Expression switch
+        ExpressionSyntax argument = invocation.ArgumentList.Arguments[0].Expression;
+
+        if (argument is LiteralExpressionSyntax literal && literal.IsKind(SyntaxKind.StringLiteralExpression))
+        {
+            string value = literal.Token.ValueText;
+            return value.Length == 0 ? null : value.Split('.');
+        }
+
+        ExpressionSyntax? body = argument switch
         {
             SimpleLambdaExpressionSyntax simple => simple.Body as ExpressionSyntax,
             ParenthesizedLambdaExpressionSyntax paren => paren.Body as ExpressionSyntax,
-            _ => null,
-        } ?? invocation.ArgumentList.Arguments[0].Expression;
+            _ => argument,
+        };
 
-        return body is MemberAccessExpressionSyntax member ? member.Name.Identifier.ValueText : null;
+        body = UnwrapFilters(body);
+
+        List<string> segments = [];
+        while (body is MemberAccessExpressionSyntax member)
+        {
+            segments.Insert(0, member.Name.Identifier.ValueText);
+            body = member.Expression;
+        }
+
+        return segments.Count == 0 ? null : segments;
+    }
+
+    private static ExpressionSyntax? UnwrapFilters(ExpressionSyntax? expression)
+    {
+        while (expression is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax memberAccess } invocation
+            && invocation.ArgumentList.Arguments.Count >= 0
+            && FilterMethods.Contains(memberAccess.Name.Identifier.ValueText))
+        {
+            expression = memberAccess.Expression;
+        }
+
+        return expression;
+    }
+
+    private static bool PathTraversesCollection(Type rootType, IReadOnlyList<string> path)
+    {
+        Type currentType = rootType;
+        bool sawCollection = false;
+
+        foreach (string segment in path)
+        {
+            PropertyInfo? property = currentType.GetProperty(segment, BindingFlags.Public | BindingFlags.Instance);
+            if (property is null)
+            {
+                return false;
+            }
+
+            if (IsCollectionType(property.PropertyType))
+            {
+                sawCollection = true;
+                currentType = ElementType(property.PropertyType);
+            }
+            else
+            {
+                currentType = property.PropertyType;
+            }
+        }
+
+        return sawCollection;
+    }
+
+    private static Type ElementType(Type collectionType)
+    {
+        if (collectionType.IsArray)
+        {
+            return collectionType.GetElementType() ?? typeof(object);
+        }
+
+        if (collectionType.IsGenericType)
+        {
+            return collectionType.GetGenericArguments()[0];
+        }
+
+        Type? enumerable = collectionType.GetInterfaces()
+            .Where(i => i.IsGenericType)
+            .FirstOrDefault(i => i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+
+        return enumerable?.GetGenericArguments()[0] ?? typeof(object);
     }
 
     private static bool IsCollectionType(Type type)

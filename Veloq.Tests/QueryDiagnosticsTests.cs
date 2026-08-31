@@ -53,8 +53,14 @@ public sealed class CartesianDetectionTests
 
     private sealed class Root
     {
-        public List<object> Reviews { get; } = [];
+        public List<Review> Reviews { get; } = [];
         public List<object> Tags { get; } = [];
+        public object? Author { get; set; }
+    }
+
+    private sealed class Review
+    {
+        public List<object> Comments { get; } = [];
         public object? Author { get; set; }
     }
 
@@ -64,6 +70,11 @@ public sealed class CartesianDetectionTests
     [InlineData("db.Book.Include(b => b.Reviews).Include(b => b.Tags).ToListAsync()", 2)]
     [InlineData("db.Book.Include(b => b.Author).ToListAsync()", 0)] // reference nav, not a collection
     [InlineData("db.Book.Include(b => b.Reviews).Include(b => b.Author).ToListAsync()", 1)]
+    [InlineData("db.Book.Include(b => b.Reviews.Where(r => r.Author != null)).ToListAsync()", 1)] // filtered direct collection
+    [InlineData("db.Book.Include(b => b.Reviews.Where(r => true).OrderBy(r => r.Author)).ToListAsync()", 1)] // chained filters
+    [InlineData("db.Book.Include(\"Reviews.Comments\").ToListAsync()", 1)] // nested collection path
+    [InlineData("db.Book.Include(\"Reviews.Author\").ToListAsync()", 1)] // path traverses a collection
+    [InlineData("db.Book.Include(\"Author\").ToListAsync()", 0)] // reference-only string path
     public void CountsCollectionIncludes(string expression, int expected)
     {
         Assert.Equal(expected, QueryDiagnostics.CountCollectionIncludes(expression, typeof(Root)));
